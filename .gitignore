@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# uv
+uv.lock
+
+# OS / editor
+.DS_Store
+*.swp
+
+# Local skill workspaces created by digenskill CLI for manual testing
+/tmp-workspace/
