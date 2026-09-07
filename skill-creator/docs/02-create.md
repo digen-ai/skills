@@ -25,7 +25,7 @@ digenskill checkout <skill_id> --as fix-desc     # custom directory suffix
 digenskill checkout <skill_id> --force           # overwrite if the directory already exists
 ```
 
-- This pulls the **edit view**: if the skill has an unpublished draft, the draft is layered on automatically (it may differ from the live version).
+- This pulls the current **live content** (user skills have no draft stage — what you check out is exactly what is running).
 - The workspace writes a `.digen-skill-id` marker so later `digenskill push` in that directory does not need `--id`.
 - Also runs `git init` plus a baseline commit so you can `git diff` later.
 

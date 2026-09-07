@@ -30,17 +30,14 @@ def print_skill_row_table(title: str, skills: List[Dict[str, Any]]):
     table.add_column("Display")
     table.add_column("Status")
     table.add_column("Enabled", justify="center")
-    table.add_column("Draft", justify="center")
     for s in skills:
         enabled = "[green]Yes[/green]" if s.get("enabled", True) else "[red]No[/red]"
-        draft = "[yellow]Y[/yellow]" if s.get("has_draft") else "[dim]-[/dim]"
         table.add_row(
             str(s.get("id", "?")),
             s.get("name", "?"),
             s.get("display_name") or "",
             s.get("status") or "",
             enabled,
-            draft,
         )
     console.print(table)
 
@@ -91,8 +88,6 @@ def print_skill_info(skill: Dict[str, Any]):
         f"[bold]Review:[/bold] {skill.get('review_status') or '-'}  "
         f"[bold]Enabled:[/bold] {skill.get('enabled')}"
     )
-    if skill.get("has_draft"):
-        console.print("[yellow]Has an unpublished draft[/yellow]")
     tools = skill.get("allowed_tools") or []
     console.print(f"[bold]Allowed tools:[/bold] {', '.join(tools) if tools else '(none)'}")
     refs = skill.get("reference_files") or {}

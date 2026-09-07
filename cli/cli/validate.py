@@ -62,9 +62,8 @@ FORBIDDEN_TOOLS = {
     "list_my_skills",
     "read_my_skill",
     "read_my_skill_file",
-    "write_skill_draft",
+    "write_skill",
     "write_skill_reference_file",
-    "publish_skill",
     "bind_skill_preset_asset",
     "unbind_skill_preset_asset",
 }

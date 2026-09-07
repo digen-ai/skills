@@ -285,7 +285,7 @@ class DigenAPIClient:
         return self._skills_json(resp)
 
     async def update_skill_zip(self, skill_id: int, zip_bytes: bytes, filename: str = "skill.zip") -> Dict[str, Any]:
-        """Overwrite a skill's draft from a zip archive (PUT /{id}/import-zip). Draft only."""
+        """Overwrite a skill's live content from a zip archive (PUT /{id}/import-zip). Takes effect immediately."""
         files = {"file": (filename, zip_bytes, "application/zip")}
         resp = await self._skills_request("PUT", skill_id, "import-zip", files=files)
         return self._skills_json(resp)

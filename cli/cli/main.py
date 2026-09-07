@@ -479,7 +479,7 @@ def checkout(
     as_name: Optional[str] = typer.Option(None, "--as", help="Workspace directory suffix (default: timestamp)"),
     force: bool = typer.Option(False, "--force", "-f"),
 ):
-    """Download an existing skill as a local git workspace (draft layered on automatically)."""
+    """Download an existing skill as a local git workspace (pulls the current live content)."""
     _require_login()
 
     async def _do():
@@ -514,8 +514,7 @@ def checkout(
     except subprocess.CalledProcessError as e:
         print_warning(f"git init failed: {e.stderr.decode() if e.stderr else e}")
 
-    draft_note = " (includes unpublished draft)" if skill.get("has_draft") else ""
-    print_success(f"Checked out #{skill_id} {name}{draft_note} -> {target}")
+    print_success(f"Checked out #{skill_id} {name} -> {target}")
     console.print(f"[dim]cd {target}[/dim]")
     console.print(f"[dim]# After editing: digenskill push {target}[/dim]")
 
@@ -544,11 +543,11 @@ def validate(path: Path = typer.Argument(Path("."), help="Workspace directory (d
 @app.command("push")
 def push(
     path: Path = typer.Argument(Path("."), help="Workspace directory (default: current directory)"),
-    skill_id: Optional[int] = typer.Option(None, "--id", help="Existing skill ID (overwrite draft); omit and if the directory has no recorded ID, create new"),
+    skill_id: Optional[int] = typer.Option(None, "--id", help="Existing skill ID (overwrite live content); omit and if the directory has no recorded ID, create new"),
     skip_validate: bool = typer.Option(False, "--skip-validate"),
     message: Optional[str] = typer.Option(None, "-m", "--message", help="Local git commit message"),
 ):
-    """Pack and upload: create a skill or write a draft for an existing one (does not list on the marketplace)."""
+    """Pack and upload: create a skill or overwrite an existing one's live content (does not list on the marketplace)."""
     _require_login()
     path = path.resolve()
     if not path.is_dir():
@@ -588,7 +587,7 @@ def push(
         try:
             if resolved_id is not None:
                 await client.update_skill_zip(resolved_id, zip_bytes)
-                print_success(f"Saved draft: #{resolved_id} ({skill_name})")
+                print_success(f"Uploaded: #{resolved_id} ({skill_name}) — live content overwritten, effective immediately")
                 _print_web_publish_hint()
                 return resolved_id
             else:

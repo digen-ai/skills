@@ -53,7 +53,7 @@ Full command docs live in `skill-creator/docs/`. Mount `skill-creator` for the A
 | `digenskill list` / `market` / `info <id>` | Browse my space / marketplace / details |
 | `digenskill init <name>` / `checkout <id>` | Create a local template / check out an existing skill |
 | `digenskill validate [path]` | Validate SKILL.md locally |
-| `digenskill push [path]` | Pack and upload (create new or write a draft) |
+| `digenskill push [path]` | Pack and upload (create new or overwrite live content) |
 | `digenskill unpublish <id>` | Make a listed skill private |
 | `digenskill install <id>` / `uninstall <id>` | Install / uninstall a marketplace skill |
 | `digenskill delete <id>` / `toggle <id> on\|off` | Delete / enable or disable |

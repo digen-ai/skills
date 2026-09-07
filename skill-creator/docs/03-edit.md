@@ -9,7 +9,7 @@
 
 - Introduce structured state protocols such as `data_schemas` / `operations` (skill_agent does not support them)
 - Depend on executable scripts under `scripts/` (they are not parsed or executed)
-- Declare authoring tools that only official skills may use (`write_skill_draft`, `publish_skill`, etc.)
+- Declare authoring tools that only official skills may use (`write_skill`, `write_skill_reference_file`, etc.)
 
 See `${SKILL_DIR}/SKILL_GUIDE.md` for writing rules (**required reading before you start**).
 

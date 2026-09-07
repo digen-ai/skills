@@ -14,7 +14,7 @@ Work through the checklist at the end of `${SKILL_DIR}/SKILL_GUIDE.md`. Common c
 |-------|-------|-----|
 | `frontmatter.name must not be empty` | missing `name` | add `name: my-skill` |
 | `name should be kebab-case` | underscores / non-ASCII / camelCase | use `[a-z0-9]+(-[a-z0-9]+)*` |
-| `allowed-tools includes authoring tools reserved for official skills` | declared `write_skill_draft` etc. | remove them; user skills cannot declare these |
+| `allowed-tools includes authoring tools reserved for official skills` | declared `write_skill` etc. | remove them; user skills cannot declare these |
 | `body is N characters, over the server limit` | body too long | move details into `references/*.md` |
 | `body references a missing file` | body mentions `` `references/xxx.md` `` but the file is missing | add the file or fix the path |
 | `N reference files, over the server limit` | too many references | merge or drop unused files |

@@ -28,14 +28,14 @@ See `${SKILL_DIR}/docs/01-setup.md`.
 
 ## Authoring flow
 
-> ⚠️ **Hard constraint**: the recommended way to edit a user skill is `digenskill checkout` (pull an existing skill in full) or `digenskill init` (new template) → local edit → `digenskill validate` → `digenskill push` (zip upload, create or write a draft) → publish from the web UI (request a marketplace listing). Do not invent REST endpoints or hand-assemble JSON requests. There is no `digenskill publish`.
+> ⚠️ **Hard constraint**: the recommended way to edit a user skill is `digenskill checkout` (pull an existing skill in full) or `digenskill init` (new template) → local edit → `digenskill validate` → `digenskill push` (zip upload, create new or overwrite an existing skill — takes effect immediately, there is no draft stage) → publish from the web UI (request a marketplace listing). Do not invent REST endpoints or hand-assemble JSON requests. There is no `digenskill publish`.
 
 ### Step 1: Init / Checkout
 
 ```bash
 digenskill list                                  # my space (builtin + self-authored + installed)
 digenskill init my-skill -d "Use when the user wants to…"     # local template (not uploaded yet)
-digenskill checkout <skill_id>                   # check out an existing skill (draft layered on automatically)
+digenskill checkout <skill_id>                   # check out an existing skill (pulls the current live content)
 digenskill checkout <skill_id> --as fix-desc      # custom directory suffix
 ```
 
@@ -52,7 +52,7 @@ You can edit:
 - `SKILL.md` — frontmatter (`name` / `description` / `display_name` / `allowed-tools` / `model`) + body
 - `references/**` — multi-stage details (the model reads them on demand via `read_skill_file`)
 
-**Do not** declare authoring tools reserved for official skills (`write_skill_draft` / `publish_skill`, etc.; see `SKILL_GUIDE.md` section 8), and **do not** depend on `scripts/` (they are not parsed or executed).
+**Do not** declare authoring tools reserved for official skills (`write_skill` / `write_skill_reference_file`, etc.; see `SKILL_GUIDE.md` section 8), and **do not** depend on `scripts/` (they are not parsed or executed).
 
 See `${SKILL_DIR}/docs/03-edit.md`.
 
@@ -66,14 +66,14 @@ Local checks for frontmatter, `description` trigger wording, body structure, ref
 
 See `${SKILL_DIR}/docs/03-edit.md`.
 
-### Step 4: Upload (draft)
+### Step 4: Upload
 
 ```bash
-digenskill push [path]                # first time: POST /import-zip to create (private); if .digen-skill-id exists: PUT to overwrite draft
-digenskill push [path] --id <skill_id>  # write a draft for an existing skill
+digenskill push [path]                # first time: POST /import-zip to create (private); if .digen-skill-id exists: PUT to overwrite the live content
+digenskill push [path] --id <skill_id>  # overwrite an existing skill (takes effect immediately)
 ```
 
-Newly created skills default to `private` and are not listed on the marketplace automatically.
+Uploads to an existing skill **overwrite the live content immediately** — there is no draft stage, so only push when the changes are meant to go live for you. (If the skill is listed on the marketplace, installers keep seeing the last approved version until you re-request the listing and it is approved.) Newly created skills default to `private` and are not listed on the marketplace automatically.
 
 See `${SKILL_DIR}/docs/04-publish.md`.
 
@@ -113,7 +113,7 @@ See `${SKILL_DIR}/docs/05-market.md`.
 | `digenskill list` / `info <id>` / `export <id>` | My space / details / download zip |
 | `digenskill init <name>` / `checkout <id>` | New template / check out locally |
 | `digenskill validate [path]` | Local validation |
-| `digenskill push [path] [--id]` | Pack and upload (create or write a draft) |
+| `digenskill push [path] [--id]` | Pack and upload (create new or overwrite live content) |
 | `digenskill unpublish <id>` / `cancel-review <id>` | Make private / withdraw review (listing is requested on the web) |
 | `digenskill delete <id>` / `toggle <id> on\|off` | Delete / personal enable-disable |
 | `digenskill market [--tab --category --q --sort]` / `market-categories` | Browse the marketplace |

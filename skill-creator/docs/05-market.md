@@ -5,7 +5,7 @@
 ```bash
 digenskill market                                  # discover tab by default
 digenskill market --tab favorites                  # my favorites
-digenskill market --tab mine                       # my own skills (including drafts)
+digenskill market --tab mine                       # my own skills
 digenskill market --category ShortDrama --q image
 digenskill market --sort popular --limit 20
 digenskill market-categories                       # list valid category enums

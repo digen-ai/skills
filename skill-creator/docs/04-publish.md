@@ -3,19 +3,19 @@
 ## Flow
 
 ```
-local workspace → digenskill push (zip upload, private draft) → publish from the web UI (request public)
+local workspace → digenskill push (zip upload, private) → publish from the web UI (request public)
                                                           ↓
                                                security scan + review gate
                                     approved → listed immediately (status=published)
                                     pending  → human review (status=in_review)
 ```
 
-## Upload (create new or write a draft)
+## Upload (create new or overwrite)
 
 ```bash
 digenskill push                        # current directory; validates, then packs and uploads
 digenskill push ./my-skill-xxx
-digenskill push . --id 123             # write a draft for an existing skill id
+digenskill push . --id 123             # overwrite an existing skill (takes effect immediately)
 digenskill push . --skip-validate      # skip local validation (not recommended)
 digenskill push . -m "tweak description"  # custom local git commit message
 ```
@@ -23,7 +23,7 @@ digenskill push . -m "tweak description"  # custom local git commit message
 Behavior:
 
 - **No** `.digen-skill-id` in the directory and no `--id`: `POST /import-zip` **creates** a skill (default `private`) and writes `.digen-skill-id` on success.
-- **Has** `.digen-skill-id` or `--id` is passed: `PUT /{id}/import-zip` **overwrites the draft** (draft only; does not affect the live running version and does not trigger review).
+- **Has** `.digen-skill-id` or `--id` is passed: `PUT /{id}/import-zip` **overwrites the live content** — there is no draft stage, so the change takes effect for you immediately. It does **not** change the marketplace-listed version and does **not** trigger review: if the skill is listed, installers keep seeing the last approved snapshot until you re-request the listing on the web and it is approved.
 
 A newly created skill is always private. Listing is requested separately on the web.
 
@@ -37,7 +37,7 @@ This sets `visibility: public`:
 - After it is already listed, `push` again and re-request listing on the web (content update): the marketplace keeps showing the last approved version until the new version is approved or rejected.
 
 ```bash
-digenskill info <skill_id>     # inspect status / review_status / has_draft
+digenskill info <skill_id>     # inspect status / review_status
 ```
 
 ## Withdraw / unpublish

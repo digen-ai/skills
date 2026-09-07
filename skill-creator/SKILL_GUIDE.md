@@ -579,7 +579,7 @@ canvas:
 - `memory_store`
 - `memory_forget`
 
-`list_my_skills` / `read_my_skill` / `read_my_skill_file` / `write_skill_draft` / `write_skill_reference_file` / `publish_skill` / `bind_skill_preset_asset` / `unbind_skill_preset_asset` 这些 Skill 创作工具**不在天花板内、且永远不会被加入**：用户 Skill 无法声明它们，只有官方 Skill（如 `skill-creator`）能用（见第 9 节）。
+`list_my_skills` / `read_my_skill` / `read_my_skill_file` / `write_skill` / `write_skill_reference_file` / `bind_skill_preset_asset` / `unbind_skill_preset_asset` 这些 Skill 创作工具**不在天花板内、且永远不会被加入**：用户 Skill 无法声明它们，只有官方 Skill（如 `skill-creator`）能用（见第 9 节）。
 
 同时还有数量限制（配置可调）：
 
@@ -598,36 +598,33 @@ Skill Agent 具备"在对话中帮用户创建/编辑/发布他自己的 Skill"�
 
 | 工具 | 作用 |
 |---|---|
-| `list_my_skills` | 列出当前用户自建的全部 Skill（含未发布草稿），返回 `skill_id`/`name`/`display_name`/`description`/`enabled`/`has_draft`/`allowed_tools` |
-| `read_my_skill` | 按 `skill_id` 读取某个自建 Skill 的完整内容（有草稿时优先返回草稿），还原为完整 SKILL.md 文本（`skill_md`）+ 引用文件**名列表**（不含全文）+ `preset_assets` |
-| `read_my_skill_file` | 按 `skill_id` + `path` 读取草稿（无草稿则线上）中单个引用文件的全文；与 `read_skill_file` 同族但读的是编辑视图 |
-| `write_skill_draft` | 把一份完整 SKILL.md 文本（+ 可选 `reference_files`）保存为草稿；`skill_id` 为空则新建，非空则覆盖既有 Skill 的草稿；**只写草稿，不影响线上版本**；不覆盖既有 `preset_assets`；正文/frontmatter 唯一写入口 |
-| `write_skill_reference_file` | 新增/覆盖或删除草稿中单个引用文件（`content` 省略/`null` 即删除）；不影响正文与其余引用文件，与 `write_skill_draft` 的整表替换互补，适合单文件增删场景 |
-| `publish_skill` | 把草稿发布为线上版本（`enabled=true`），进入用户 Skill 空间（含草稿中的 `preset_assets`） |
-| `bind_skill_preset_asset` | 把本轮用户附件的 `asset_id` 绑到 skill 草稿预设清单（`key`/`label`）；资产会公开引用 |
-| `unbind_skill_preset_asset` | 从草稿预设清单移除一项（不删底层 assets 行） |
+| `list_my_skills` | 列出当前用户自建的全部 Skill，返回 `skill_id`/`name`/`display_name`/`description`/`enabled`/`allowed_tools`（`has_draft` 字段仅为兼容旧客户端保留，用户 Skill 恒为 False） |
+| `read_my_skill` | 按 `skill_id` 读取某个自建 Skill 的完整线上内容，还原为完整 SKILL.md 文本（`skill_md`）+ 引用文件**名列表**（不含全文）+ `preset_assets` |
+| `read_my_skill_file` | 按 `skill_id` + `path` 读取单个引用文件的全文；与 `read_skill_file` 同族但读的是本人 Skill 的线上内容 |
+| `write_skill` | 把一份完整 SKILL.md 文本（+ 可选 `reference_files`）**直接写入线上并立即生效**（无草稿阶段）；`skill_id` 为空则新建，非空则覆盖既有 Skill；不覆盖既有 `preset_assets`；正文/frontmatter 唯一写入口 |
+| `write_skill_reference_file` | 新增/覆盖或删除单个引用文件（`content` 省略/`null` 即删除），立即生效；不影响正文与其余引用文件，与 `write_skill` 的整表替换互补，适合单文件增删场景 |
+| `bind_skill_preset_asset` | 把本轮用户附件的 `asset_id` 绑到 skill 预设清单（`key`/`label`），立即生效；资产会公开引用 |
+| `unbind_skill_preset_asset` | 从预设清单移除一项（不删底层 assets 行），立即生效 |
 
 ### 9.1 前置条件
 
 - 承载 Skill 的 workflow 必须是 **`skill_agent`**（见第 10 节）。这些创作工具靠 orchestrator 隐藏注入的 `_user_id` 做归属校验（LLM 不可见、不会主动传递，同 `read_skill` 的 `_scope` 注入机制）；`user_id` 缺失时调用会被拒绝并返回结构化错误。
 - 只有官方 Skill（`owner_user_id IS NULL`）能声明这些工具；用户自建 Skill 的 `allowed-tools` 即使写了也会被服务端天花板过滤掉。
 
-### 9.2 两段式草稿/发布
+### 9.2 直写语义（无草稿阶段）
 
-与官方 Skill 的 draft/publish 复用同一套 `skills.draft` JSONB 语义：
+早期版本与官方 Skill 复用同一套 `skills.draft` JSONB 两段式语义（`write_skill_draft` 只写草稿 → 用户确认 → `publish_skill` 落主列）；现已改为**直写线上**：
 
 ```
-write_skill_draft(skill_md, reference_files?, skill_id?)
-        ↓ 只写草稿，不影响线上版本；可反复调用直到用户满意
-用户明确确认（正文必须要求：未经确认不得调用 publish_skill）
-        ↓
-publish_skill(skill_id)
-        ↓ 草稿落主列 + enabled=true，进入用户空间（下一轮对话起可用）
+write_skill(skill_md, reference_files?, skill_id?)
+        ↓ 直写线上行 + enabled=true，立即生效（下一轮对话起可挂载使用）
 ```
 
-`write_skill_draft` 返回 `{skill_id, name, warnings[], preview}`：`preview` 里的名称/描述/工具白名单要念给用户确认；`warnings` 列出因超出用户天花板（第 8 节）被裁掉的工具，正文必须要求如实告知，不能吞掉不提。限额校验（正文超长/引用文件过多/超过每用户 Skill 数上限）失败时返回结构化 `error`，按提示修正后重试。
+`write_skill` / `write_skill_reference_file` / `bind_skill_preset_asset` / `unbind_skill_preset_asset` 全部直接写线上、立即生效——没有草稿阶段，也没有需要链式调用的发布动作，每次调用即完成。（`skills.draft` 列本身仍保留，仅供**官方** Skill 的 admin 审核发布流使用，与用户 Skill 无关。）
 
-只想增/改/删单个引用文件时不必走整份 `write_skill_draft`，用 `write_skill_reference_file(skill_id, path, content?)` 即可（同样只写草稿）：`content` 省略或为 `null` 表示删除该文件；`path` 不能是 `SKILL.md`（正文/frontmatter 只能经 `write_skill_draft`）。返回 `{skill_id, path, deleted, existed, reference_files}`；删除不存在的路径返回 `existed=false` 且不算错误，但也未做任何修改。
+`write_skill` 返回 `{skill_id, name, warnings[], preview}`：`preview` 里的名称/描述/工具白名单要念给用户；`warnings` 列出因超出用户天花板（第 8 节）被裁掉的工具，正文必须要求如实告知，不能吞掉不提。限额校验（正文超长/引用文件过多/超过每用户 Skill 数上限）失败时返回结构化 `error`，按提示修正后重试。
+
+只想增/改/删单个引用文件时不必走整份 `write_skill`，用 `write_skill_reference_file(skill_id, path, content?)` 即可（同样立即生效）：`content` 省略或为 `null` 表示删除该文件；`path` 不能是 `SKILL.md`（正文/frontmatter 只能经 `write_skill`）。返回 `{skill_id, path, deleted, existed, reference_files}`；删除不存在的路径返回 `existed=false` 且不算错误，但也未做任何修改。
 
 ### 9.3 name 的 kebab-case 约束
 
@@ -635,10 +632,10 @@ publish_skill(skill_id)
 
 ### 9.4 已知限制
 
-- Skill 挂载集在每轮对话开始时解析一次；`publish_skill` 成功后**本轮不会立刻生效**，正文需告知用户"新 Skill 从下一轮对话起可用"。
-- 用户 Skill 不写 `skill_revisions`（修订历史仅官方 Skill 归档），发布后没有历史版本可回滚，只能再次编辑草稿覆盖。
-- `read_my_skill` / `read_my_skill_file` / `write_skill_draft` / `write_skill_reference_file` / `publish_skill` 均按 `(skill_id, owner_user_id)` 做归属校验，模型不能读取/修改/发布不属于当前用户的 Skill；越权调用返回结构化 `{"success": false, "error": ...}`，不是异常。
-- `write_skill_reference_file` 与 `write_skill_draft` 都是"读草稿 → 内存合并 → 整体覆盖 `draft` JSONB"，两次并发调用会互相覆盖（后写者基于旧快照），无乐观锁；当前单会话交互场景下概率低，可接受。
+- Skill 挂载集在每轮对话开始时解析一次；`write_skill` 写入后**本轮不会立刻生效**，正文需告知用户"新 Skill 从下一轮对话起可用"。
+- 用户 Skill 不写 `skill_revisions`（修订历史仅官方 Skill 归档），写入后没有历史版本可回滚，只能再次编辑覆盖。
+- `read_my_skill` / `read_my_skill_file` / `write_skill` / `write_skill_reference_file` 均按 `(skill_id, owner_user_id)` 做归属校验，模型不能读取/修改不属于当前用户的 Skill；越权调用返回结构化 `{"success": false, "error": ...}`，不是异常。
+- `write_skill_reference_file` 与 `write_skill` 都是"读线上 → 内存合并 → 整体覆盖"，两次并发调用会互相覆盖（后写者基于旧快照），无乐观锁；当前单会话交互场景下概率低，可接受。
 
 ---
 
@@ -699,7 +696,7 @@ timezone: UTC             # 可选，IANA 时区名；默认 UTC+0（全球用�
 
 见 `examples/skill_creator/`（第 9 节）：
 
-- `skills/skill-creator/SKILL.md`：`allowed-tools` 只声明 `list_my_skills` / `read_my_skill` / `write_skill_draft` / `publish_skill`；正文区分「新建」「修改既有」「查看」三条流程，强调发布前必须用户确认；涉及媒体生成时要求先读 `available-models.md` 并写死 **channel**
+- `skills/skill-creator/SKILL.md`：`allowed-tools` 声明 `list_my_skills` / `read_my_skill` / `read_my_skill_file` / `write_skill` / `write_skill_reference_file` / `bind_skill_preset_asset` / `unbind_skill_preset_asset`；正文区分「新建」「修改既有」「查看」三条流程，写入即生效、无草稿/确认阶段；涉及媒体生成时要求先读 `available-models.md` 并写死 **channel**
 - `references/skill-writing-guide.md`：面向"帮用户写 Skill 的 Skill"的编写规范，含 kebab-case 命名约束、天花板内工具清单、**channel 选型**、产出前检查清单
 - `references/available-models.md`：平台 channel 目录（权威）；起草时硬编码 channel，禁止物理模型名
 - `orchestrator_config.yaml`：说明性配置，示范挂在 `skill_agent` 动态挂载 workflow 下
@@ -745,9 +742,9 @@ timezone: UTC             # 可选，IANA 时区名；默认 UTC+0（全球用�
 | 用 `list_models` 现场猜模型代替 channel 目录 | 起草时以 `available-models.md` 为准；`list_models` 仅兜底 |
 | 把 frontmatter `model: uncensored` 当成生成 channel | 前者是 LLM 档位（6.5）；生成用工具参数 `model='i2v.nsfw'` 等（6.3） |
 | 阶段之间每次都问「是否继续」 | 默认连续推进；仅用户要求确认时停下 |
-| 用户 Skill 里声明 `write_skill_draft` / `publish_skill` 等创作工具 | 仅官方 Skill 可声明，不在用户天花板内（见第 9 节），否则用户 Skill 可自我繁殖 |
+| 用户 Skill 里声明 `write_skill` 等创作工具 | 仅官方 Skill 可声明，不在用户天花板内（见第 9 节），否则用户 Skill 可自我繁殖 |
 | 假设系统会自动记住用户偏好 | 必须用 `memory_store` / `memory_query`；身份摘要靠 whoami（见 7.4） |
 | 期望 `memory_query` 能查到 skill 知识库内容 | 用户记忆与共享知识库是两个独立工具，`memory_query` 只查个人记忆，知识库内容要用 `skill_kb_query`（见 7.4） |
 | 用了 `memory_*` / `skill_kb_query` 却没写进 `allowed-tools` | 这 5 个工具不再常驻，必须显式声明才能被挂载调用（见 7.4） |
-| `publish_skill` 成功后指望本轮就能用新 Skill | Skill 挂载集每轮开始时解析一次，新 Skill 下一轮对话起才生效（见 9.4） |
+| `write_skill` 写入后指望本轮就能用新 Skill | Skill 挂载集每轮开始时解析一次，新 Skill 下一轮对话起才生效（见 9.4） |
 | skill-creator 类 Skill 里 `name` 允许用中文/下划线 | `name` 必须 kebab-case，非 ASCII 字符会被规范化坍缩，正文需强制要求英文+连字符（见 9.3） |
