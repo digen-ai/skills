@@ -150,7 +150,6 @@ allowed-tools:
 | `description` | 是 | **一句话触发条件**（见下）。只出现在第一层索引里 |
 | `allowed-tools` | 强烈建议 | 本 Skill 需要用到的平台工具白名单。也支持 `allowed_tools` 或逗号分隔字符串 |
 | `canvas` | 否 | 产物可见性控制：`model_control` / `hidden_tools` / `hidden_entity_types`（见第 6.2 节「隐藏中间产物」） |
-| `model` | 否 | LLM 模型档位（`standard` / `uncensored`），官方 / 用户 Skill 均可声明（见第 6.5 节「模型档位切换」）。注意：与生成工具参数里的 **channel**（`model='i2v'` 等）不是同一概念 |
 | `display_name` / `title` | 否 | 人类可读名称；不影响 LLM 调度 |
 | 其他字段 | 否 | 保留为 `metadata`（如 `version`、`license`），不参与运行逻辑 |
 
@@ -212,7 +211,7 @@ description: 短剧                         # 过短，漏掉「改某一环也�
 5. **产物会自动上画布**：最终回复用自然语言概括即可，**不要大段粘贴 URL**。
 6. **失败如实告知**：工具 `success=false` 时不要假装成功或编造资源链接。
 7. **内容政策**：暴力/色情等请求礼貌拒绝，不调用生成工具。
-8. **控制长度**：简单 Skill 控制在数百到一两千字；复杂流程拆到 `references/`。用户 Skill 正文默认上限约 `50000` 字符（见配置 `skills.user_authored.max_body_chars`）。
+8. **控制长度**：简单 Skill 控制在数百到一两千字；复杂流程拆到 `references/`。用户 Skill 正文默认上限约 `50000` 字符（见配置 `skills.user_authored.max_body_chars`）。注意 `read_skill`/`read_skill_file` 返回值回灌给模型时还会按 `orchestrator_config.tool_result_max_chars`（默认 `8000` 字符）截断——这是所有工具共用的全局默认，正文写到接近 `50000` 字符时默认会被截断。可在承载该 Skill 的 workflow `orchestrator_config` 里用 `tool_result_max_chars_overrides: {read_skill: 50000, read_skill_file: 50000}` 按工具名单独放大，不影响其它工具的截断上限。
 
 ### 与「最终回复」相关的约定
 
@@ -331,7 +330,7 @@ canvas:
 **概念**：
 
 - **channel**：稳定模态 ID，如 `t2i`、`i2v`、`ref2v`、`tts.design`。Skill 正文写 channel。
-- **variant 后缀**：选择带 tag 的 binding，如 `i2v.nsfw`、`t2i.hd`、`i2i.hd.lite`（可组合；最长前缀 channel 匹配优先）。
+- **variant 后缀**：选择带 tag 的 binding，如 `t2i.hd`、`i2i.hd.lite`（可组合；最长前缀 channel 匹配优先）。
 - **裸 channel**（如 `i2v`）：走当前 **default** binding。
 - **物理模型名**：仍可解析（兼容旧 Skill），但 **新 Skill 禁止再写**。
 
@@ -341,7 +340,7 @@ canvas:
 |---|---|---|
 | `t2i` / `t2i.hd` / `t2i.hd.lite` | `generate_image` | 文生图；`.hd*` 更高质量且**不支持 NSFW** |
 | `i2i` / `i2i.hd` / `i2i.hd.lite` | `generate_image` | 图生图（有参考图）；网格分镜优先 `.hd` / `.hd.lite`；`.hd*` **不支持 NSFW** |
-| `i2v` / `i2v.nsfw` | `generate_video` | 图生视频；成人/高强度内容优先 `i2v.nsfw` |
+| `i2v` | `generate_video` | 图生视频（**视频生成不支持 NSFW/成人内容，无任何 channel 例外**） |
 | `fl2v` | `generate_video` | 首尾帧生视频（`input_urls` 为首帧+尾帧） |
 | `ai2v` | `generate_video` | 图 + 音频驱动生视频 |
 | `t2v` | `generate_video` | 通用文生/图生视频；显式传 `model='t2v'` 时 `input_urls` 可留空（纯文生视频） |
@@ -354,8 +353,8 @@ canvas:
 **选型规则（写进 Skill 正文时）**：
 
 1. 先按用户意图确定模态（文生图 / 图生图 / 图生视频 / 首尾帧 / 音频驱动 / 参考生视频 / Director / 配音 / 音乐 / 拼接）。
-2. 选定工具后，在步骤里**硬编码** `model=<channel>`（及必要的输入约定：`input_urls`、`mode`、`audio_url`、`voice_instruction` 等）。需要 tagged binding 时用后缀（如 `model='i2v.nsfw'`、`model='t2i.hd'`）。
-3. 图生视频：常规 → `i2v`；NSFW/成人 → `i2v.nsfw`。
+2. 选定工具后，在步骤里**硬编码** `model=<channel>`（及必要的输入约定：`input_urls`、`mode`、`audio_url`、`voice_instruction` 等）。需要 tagged binding 时用后缀（如 `model='t2i.hd'`）。
+3. 图生视频：统一用 `i2v`——视频生成不支持 NSFW/成人内容，没有对应的 tagged 变体。
 4. 参考生视频：传 `model='ref2v'` 即可（模态完全由 channel 决定，**不需要**再传 `gen_mode`）；至少 1 张参考图。若还需音频驱动，另传 `audio_url`（可选 `audio_start_time`），不要把音频 URL 塞进 `input_urls`。
 5. **禁止**在新 Skill 里写物理模型名——`generate_video` 会直接拒绝具体模型名（报错并提示改用 channel）；不要依赖下游 `list_models` 去猜 channel。
 
@@ -367,7 +366,7 @@ canvas:
 - 参考生视频：`generate_video(..., model='ref2v', orientation='portrait')`
 ```
 
-> 与 frontmatter 的 `model: uncensored`（第 6.5 节）区分：后者切换的是 **对话 LLM 档位**；本节的 channel 是 **生成工具** 的 `model=` 参数。
+> 注意：此处的 channel（`model='i2v'` 等）是**生成工具**的参数，与 LLM 本身用哪个模型无关——Skill 已不支持声明对话 LLM 档位。
 
 ### 6.4 参数写作提示
 
@@ -376,7 +375,7 @@ canvas:
 ```markdown
 - 短剧默认 `orientation='portrait'`，除非用户明确要求横屏；分辨率无特殊要求时不传 `resolution`（走默认 `720P`）。
 - 图片/视频 prompt 使用英文；对白文本保持用户语言。
-- 图生视频：分镜静帧 URL 放入 `input_urls`（第 1 张为首帧）；`model='i2v'`（成人内容用 `i2v.nsfw`）。
+- 图生视频：分镜静帧 URL 放入 `input_urls`（第 1 张为首帧）；`model='i2v'`（视频生成不支持 NSFW/成人内容）。
 - `mix_clips` 的 `clips[].video(s)/audio(s).url` 优先传本对话已生成资产的 asset_id（也支持 `s3://`/真实 https），禁止编造不存在的引用。
 ```
 
@@ -392,31 +391,11 @@ canvas:
 
 > **参数边界（平台钳制）**：`resolution` / `duration` 存在平台上限（`max_resolution` 面积上限、`max_duration` 时长上限；按模型/channel 云端配置 + 全局兜底），`batch_size` 锁死为 1（不开放单次多张生成）。Skill 正文**不要**写死超长时长或大于 1 的批量数——越界参数（含超出模型能力的 `resolution`）在工具执行前会被自动钳制/降档，并在工具返回的 `param_adjustments` 字段中说明。未指定 `orientation`/`resolution` 时，走云端 channel 配置或平台默认档位（`landscape` + `720P`）。
 
-### 6.5 模型档位切换（frontmatter `model:` / `switch_model` 工具）
-
-平台除标准模型（`standard`）外还接入了未审核模型（`uncensored`），用于处理成人/敏感等标准模型会拒答的内容。官方 Skill 与用户自建 Skill 均可使用。两种触发方式，可按需组合：
-
-1. **Skill 声明**：当轮 "/" 显式调用该 skill、或运行中 `read_skill(name)` 命中该 skill 时，自动把后续 LLM 调用切到声明的档位，不需要模型自己判断：
-
-   ```yaml
-   ---
-   name: nsfw-image
-   description: ...
-   model: uncensored
-   ---
-   ```
-
-2. **模型自主判断**：任意 Skill 正文都可以写一句"识别到用户请求涉及成人/敏感内容、当前模型不适合直接处理时，调用 `switch_model(tier="uncensored", reason=...)`，切换后继续完成任务，不要直接拒绝"。`switch_model` 是常驻工具（同 `read_skill` / `write_todos`），无需写进 `allowed-tools`。
-
-档位切换**只升不降**，且在整个会话内持续生效（下一轮直接从已升级的档位起步，不需要每轮重复调用，也不需要重新挂载 skill）。
-
-`model` 字段在用户 skill 的 metadata 白名单内（与 `version` / `tags` 同类），保存时不会被剥离；能声明的档位仍受登记表限制（目前仅 `standard` / `uncensored`）。注意：`canvas` 等其余运行时字段仍仅官方 Skill 可设置。与第 6.3 节的生成 **channel**（工具参数 `model='i2v'`）不是同一概念。
-
 ---
 
 ## 7. 常驻工具
 
-`read_skill` / `read_skill_file` / `write_todos` / `set_guidance` / `switch_model` **不必**写进 `allowed-tools`（写了也无妨）；编排器会始终注入（`set_guidance` 取决于 `suggested_questions`）。**例外**：7.4 节的 `memory_*` / `skill_kb_query` 不在此列，必须由 Skill 显式在 `allowed-tools` 中声明才可用，见该节说明。
+`read_skill` / `read_skill_file` / `write_todos` / `set_guidance` **不必**写进 `allowed-tools`（写了也无妨）；编排器会始终注入（`set_guidance` 取决于 `suggested_questions`）。**例外**：7.4 节的 `memory_*` / `skill_kb_query` 不在此列，必须由 Skill 显式在 `allowed-tools` 中声明才可用，见该节说明。
 
 ### 7.1 `read_skill` / `read_skill_file`
 
@@ -545,10 +524,6 @@ canvas:
 
 两组接口都要求 `X-User-Id`；skill KB 组额外校验当前用户是该 skill 的 owner，且更新/删除时会校验目标分片确实属于该 `skill_id` 的命名空间（同一个系统用户持有所有 skill 的共享知识库，仅按 owner 身份过滤不足以防止跨 skill 越权）。
 
-### 7.5 `switch_model`（模型档位切换）
-
-声明式工具：请求把后续 LLM 调用切到某个模型档位（`standard` / `uncensored`），本身无副作用，实际切换由编排器完成。用法、与 frontmatter `model:` 声明的关系、只升不降/跨轮粘性等细节见第 6.5 节「模型档位切换」，此处不重复。
-
 ---
 
 ## 8. 用户 Skill 限制（天花板）
@@ -579,7 +554,7 @@ canvas:
 - `memory_store`
 - `memory_forget`
 
-`list_my_skills` / `read_my_skill` / `read_my_skill_file` / `write_skill` / `write_skill_reference_file` / `bind_skill_preset_asset` / `unbind_skill_preset_asset` 这些 Skill 创作工具**不在天花板内、且永远不会被加入**：用户 Skill 无法声明它们，只有官方 Skill（如 `skill-creator`）能用（见第 9 节）。
+`list_my_skills` / `read_my_skill` / `read_my_skill_file` / `write_skill_draft` / `write_skill_reference_file` / `publish_skill` / `bind_skill_preset_asset` / `unbind_skill_preset_asset` 这些 Skill 创作工具**不在天花板内、且永远不会被加入**：用户 Skill 无法声明它们，只有官方 Skill（如 `skill-creator`）能用（见第 9 节）。
 
 同时还有数量限制（配置可调）：
 
@@ -598,33 +573,36 @@ Skill Agent 具备"在对话中帮用户创建/编辑/发布他自己的 Skill"�
 
 | 工具 | 作用 |
 |---|---|
-| `list_my_skills` | 列出当前用户自建的全部 Skill，返回 `skill_id`/`name`/`display_name`/`description`/`enabled`/`allowed_tools`（`has_draft` 字段仅为兼容旧客户端保留，用户 Skill 恒为 False） |
-| `read_my_skill` | 按 `skill_id` 读取某个自建 Skill 的完整线上内容，还原为完整 SKILL.md 文本（`skill_md`）+ 引用文件**名列表**（不含全文）+ `preset_assets` |
-| `read_my_skill_file` | 按 `skill_id` + `path` 读取单个引用文件的全文；与 `read_skill_file` 同族但读的是本人 Skill 的线上内容 |
-| `write_skill` | 把一份完整 SKILL.md 文本（+ 可选 `reference_files`）**直接写入线上并立即生效**（无草稿阶段）；`skill_id` 为空则新建，非空则覆盖既有 Skill；不覆盖既有 `preset_assets`；正文/frontmatter 唯一写入口 |
-| `write_skill_reference_file` | 新增/覆盖或删除单个引用文件（`content` 省略/`null` 即删除），立即生效；不影响正文与其余引用文件，与 `write_skill` 的整表替换互补，适合单文件增删场景 |
-| `bind_skill_preset_asset` | 把本轮用户附件的 `asset_id` 绑到 skill 预设清单（`key`/`label`），立即生效；资产会公开引用 |
-| `unbind_skill_preset_asset` | 从预设清单移除一项（不删底层 assets 行），立即生效 |
+| `list_my_skills` | 列出当前用户自建的全部 Skill（含未发布草稿），返回 `skill_id`/`name`/`display_name`/`description`/`enabled`/`has_draft`/`allowed_tools` |
+| `read_my_skill` | 按 `skill_id` 读取某个自建 Skill 的完整内容（有草稿时优先返回草稿），还原为完整 SKILL.md 文本（`skill_md`）+ 引用文件**名列表**（不含全文）+ `preset_assets` |
+| `read_my_skill_file` | 按 `skill_id` + `path` 读取草稿（无草稿则线上）中单个引用文件的全文；与 `read_skill_file` 同族但读的是编辑视图 |
+| `write_skill_draft` | 把一份完整 SKILL.md 文本（+ 可选 `reference_files`）保存为草稿；`skill_id` 为空则新建，非空则覆盖既有 Skill 的草稿；**只写草稿，不影响线上版本**；不覆盖既有 `preset_assets`；正文/frontmatter 唯一写入口 |
+| `write_skill_reference_file` | 新增/覆盖或删除草稿中单个引用文件（`content` 省略/`null` 即删除）；不影响正文与其余引用文件，与 `write_skill_draft` 的整表替换互补，适合单文件增删场景 |
+| `publish_skill` | 把草稿发布为线上版本（`enabled=true`），进入用户 Skill 空间（含草稿中的 `preset_assets`） |
+| `bind_skill_preset_asset` | 把本轮用户附件的 `asset_id` 绑到 skill 草稿预设清单（`key`/`label`）；资产会公开引用 |
+| `unbind_skill_preset_asset` | 从草稿预设清单移除一项（不删底层 assets 行） |
 
 ### 9.1 前置条件
 
 - 承载 Skill 的 workflow 必须是 **`skill_agent`**（见第 10 节）。这些创作工具靠 orchestrator 隐藏注入的 `_user_id` 做归属校验（LLM 不可见、不会主动传递，同 `read_skill` 的 `_scope` 注入机制）；`user_id` 缺失时调用会被拒绝并返回结构化错误。
 - 只有官方 Skill（`owner_user_id IS NULL`）能声明这些工具；用户自建 Skill 的 `allowed-tools` 即使写了也会被服务端天花板过滤掉。
 
-### 9.2 直写语义（无草稿阶段）
+### 9.2 两段式草稿/发布
 
-早期版本与官方 Skill 复用同一套 `skills.draft` JSONB 两段式语义（`write_skill_draft` 只写草稿 → 用户确认 → `publish_skill` 落主列）；现已改为**直写线上**：
+与官方 Skill 的 draft/publish 复用同一套 `skills.draft` JSONB 语义：
 
 ```
-write_skill(skill_md, reference_files?, skill_id?)
-        ↓ 直写线上行 + enabled=true，立即生效（下一轮对话起可挂载使用）
+write_skill_draft(skill_md, reference_files?, skill_id?)
+        ↓ 只写草稿，不影响线上版本；可反复调用直到用户满意
+用户明确确认（正文必须要求：未经确认不得调用 publish_skill）
+        ↓
+publish_skill(skill_id)
+        ↓ 草稿落主列 + enabled=true，进入用户空间（下一轮对话起可用）
 ```
 
-`write_skill` / `write_skill_reference_file` / `bind_skill_preset_asset` / `unbind_skill_preset_asset` 全部直接写线上、立即生效——没有草稿阶段，也没有需要链式调用的发布动作，每次调用即完成。（`skills.draft` 列本身仍保留，仅供**官方** Skill 的 admin 审核发布流使用，与用户 Skill 无关。）
+`write_skill_draft` 返回 `{skill_id, name, warnings[], preview}`：`preview` 里的名称/描述/工具白名单要念给用户确认；`warnings` 列出因超出用户天花板（第 8 节）被裁掉的工具，正文必须要求如实告知，不能吞掉不提。限额校验（正文超长/引用文件过多/超过每用户 Skill 数上限）失败时返回结构化 `error`，按提示修正后重试。
 
-`write_skill` 返回 `{skill_id, name, warnings[], preview}`：`preview` 里的名称/描述/工具白名单要念给用户；`warnings` 列出因超出用户天花板（第 8 节）被裁掉的工具，正文必须要求如实告知，不能吞掉不提。限额校验（正文超长/引用文件过多/超过每用户 Skill 数上限）失败时返回结构化 `error`，按提示修正后重试。
-
-只想增/改/删单个引用文件时不必走整份 `write_skill`，用 `write_skill_reference_file(skill_id, path, content?)` 即可（同样立即生效）：`content` 省略或为 `null` 表示删除该文件；`path` 不能是 `SKILL.md`（正文/frontmatter 只能经 `write_skill`）。返回 `{skill_id, path, deleted, existed, reference_files}`；删除不存在的路径返回 `existed=false` 且不算错误，但也未做任何修改。
+只想增/改/删单个引用文件时不必走整份 `write_skill_draft`，用 `write_skill_reference_file(skill_id, path, content?)` 即可（同样只写草稿）：`content` 省略或为 `null` 表示删除该文件；`path` 不能是 `SKILL.md`（正文/frontmatter 只能经 `write_skill_draft`）。返回 `{skill_id, path, deleted, existed, reference_files}`；删除不存在的路径返回 `existed=false` 且不算错误，但也未做任何修改。
 
 ### 9.3 name 的 kebab-case 约束
 
@@ -632,10 +610,10 @@ write_skill(skill_md, reference_files?, skill_id?)
 
 ### 9.4 已知限制
 
-- Skill 挂载集在每轮对话开始时解析一次；`write_skill` 写入后**本轮不会立刻生效**，正文需告知用户"新 Skill 从下一轮对话起可用"。
-- 用户 Skill 不写 `skill_revisions`（修订历史仅官方 Skill 归档），写入后没有历史版本可回滚，只能再次编辑覆盖。
-- `read_my_skill` / `read_my_skill_file` / `write_skill` / `write_skill_reference_file` 均按 `(skill_id, owner_user_id)` 做归属校验，模型不能读取/修改不属于当前用户的 Skill；越权调用返回结构化 `{"success": false, "error": ...}`，不是异常。
-- `write_skill_reference_file` 与 `write_skill` 都是"读线上 → 内存合并 → 整体覆盖"，两次并发调用会互相覆盖（后写者基于旧快照），无乐观锁；当前单会话交互场景下概率低，可接受。
+- Skill 挂载集在每轮对话开始时解析一次；`publish_skill` 成功后**本轮不会立刻生效**，正文需告知用户"新 Skill 从下一轮对话起可用"。
+- 用户 Skill 不写 `skill_revisions`（修订历史仅官方 Skill 归档），发布后没有历史版本可回滚，只能再次编辑草稿覆盖。
+- `read_my_skill` / `read_my_skill_file` / `write_skill_draft` / `write_skill_reference_file` / `publish_skill` 均按 `(skill_id, owner_user_id)` 做归属校验，模型不能读取/修改/发布不属于当前用户的 Skill；越权调用返回结构化 `{"success": false, "error": ...}`，不是异常。
+- `write_skill_reference_file` 与 `write_skill_draft` 都是"读草稿 → 内存合并 → 整体覆盖 `draft` JSONB"，两次并发调用会互相覆盖（后写者基于旧快照），无乐观锁；当前单会话交互场景下概率低，可接受。
 
 ---
 
@@ -696,7 +674,7 @@ timezone: UTC             # 可选，IANA 时区名；默认 UTC+0（全球用�
 
 见 `examples/skill_creator/`（第 9 节）：
 
-- `skills/skill-creator/SKILL.md`：`allowed-tools` 声明 `list_my_skills` / `read_my_skill` / `read_my_skill_file` / `write_skill` / `write_skill_reference_file` / `bind_skill_preset_asset` / `unbind_skill_preset_asset`；正文区分「新建」「修改既有」「查看」三条流程，写入即生效、无草稿/确认阶段；涉及媒体生成时要求先读 `available-models.md` 并写死 **channel**
+- `skills/skill-creator/SKILL.md`：`allowed-tools` 只声明 `list_my_skills` / `read_my_skill` / `write_skill_draft` / `publish_skill`；正文区分「新建」「修改既有」「查看」三条流程，强调发布前必须用户确认；涉及媒体生成时要求先读 `available-models.md` 并写死 **channel**
 - `references/skill-writing-guide.md`：面向"帮用户写 Skill 的 Skill"的编写规范，含 kebab-case 命名约束、天花板内工具清单、**channel 选型**、产出前检查清单
 - `references/available-models.md`：平台 channel 目录（权威）；起草时硬编码 channel，禁止物理模型名
 - `orchestrator_config.yaml`：说明性配置，示范挂在 `skill_agent` 动态挂载 workflow 下
@@ -714,7 +692,7 @@ timezone: UTC             # 可选，IANA 时区名；默认 UTC+0（全球用�
 - [ ] `allowed-tools` 只包含本 Skill 真正需要的工具，且在用户天花板内（若面向用户）
 - [ ] 正文含「何时使用 / 步骤 / 注意事项」（或多阶段索引 + 协作原则）
 - [ ] 步骤中的工具名与 `allowed-tools` 一致；关键参数（`name`、`entity_type`、`orientation`、生成步骤的 **`model=<channel>`** 等）有约定
-- [ ] 涉及媒体生成时：已按第 6.3 节绑定正确 **channel**（对照 `available-models.md`；无物理模型名；图生视频 NSFW 优先 `i2v.nsfw`）
+- [ ] 涉及媒体生成时：已按第 6.3 节绑定正确 **channel**（对照 `available-models.md`；无物理模型名；视频生成不支持 NSFW/成人内容）
 - [ ] 未引入 `data_schemas` / `operations` / 伪 JSON 状态协议
 - [ ] 未依赖 Skill 包内 `scripts/`（不会被解析或执行）
 - [ ] 长内容已拆到 `references/`，正文明确「按需 `read_skill_file`、不要一次全读」
@@ -722,7 +700,7 @@ timezone: UTC             # 可选，IANA 时区名；默认 UTC+0（全球用�
 - [ ] 依赖跨会话记忆时：`allowed-tools` 已声明用到的 `memory_whoami` / `memory_query` / `memory_store` / `memory_forget`（不再常驻），并在步骤里写清调用时机与该记/不该记；依赖 skill 共享知识库时声明并使用 `skill_kb_query`，不要与 `memory_query` 混用（见 7.4）
 - [ ] 要求失败如实反馈、禁止编造 URL、违规内容拒绝生成
 - [ ] 有中间产物时已在 frontmatter `canvas:` 声明隐藏规则（`hidden_entity_types` / `hidden_tools`），或开启 `model_control` 并在正文写死哪些步骤传 `add_to_canvas=false`
-- [ ] 涉及成人/敏感内容时：已在 frontmatter 声明 `model: uncensored`（LLM 档位），或在正文写清何时调用 `switch_model`（见 6.5）；与生成 channel（如 `i2v.nsfw`）按需同时约定；官方 / 用户 Skill 均可
+- [ ] 涉及成人/敏感内容时：图片按需绑定生成 channel（裸 `t2i`/`i2i`，非 `.hd*` 变体，见 6.3）；视频生成不支持 NSFW/成人内容；Skill 已不支持声明对话 LLM 档位
 - [ ] 最终回复要求自然语言概括，不粘贴长 URL
 - [ ] 目录可被 `load_skill_from_directory` / zip 上传解析（`SKILL.md` 存在，引用路径正确）
 
@@ -740,11 +718,10 @@ timezone: UTC             # 可选，IANA 时区名；默认 UTC+0（全球用�
 | 忘记声明 `generate_image` 却在步骤里调用 | `allowed-tools` 与正文步骤保持一致 |
 | 生成步骤硬编码物理模型名（`rm3.1-G`、`qwen-image`…） | 写稳定 **channel**（`i2v`、`t2i`…）；对照 `available-models.md`（见 6.3） |
 | 用 `list_models` 现场猜模型代替 channel 目录 | 起草时以 `available-models.md` 为准；`list_models` 仅兜底 |
-| 把 frontmatter `model: uncensored` 当成生成 channel | 前者是 LLM 档位（6.5）；生成用工具参数 `model='i2v.nsfw'` 等（6.3） |
 | 阶段之间每次都问「是否继续」 | 默认连续推进；仅用户要求确认时停下 |
-| 用户 Skill 里声明 `write_skill` 等创作工具 | 仅官方 Skill 可声明，不在用户天花板内（见第 9 节），否则用户 Skill 可自我繁殖 |
+| 用户 Skill 里声明 `write_skill_draft` / `publish_skill` 等创作工具 | 仅官方 Skill 可声明，不在用户天花板内（见第 9 节），否则用户 Skill 可自我繁殖 |
 | 假设系统会自动记住用户偏好 | 必须用 `memory_store` / `memory_query`；身份摘要靠 whoami（见 7.4） |
 | 期望 `memory_query` 能查到 skill 知识库内容 | 用户记忆与共享知识库是两个独立工具，`memory_query` 只查个人记忆，知识库内容要用 `skill_kb_query`（见 7.4） |
 | 用了 `memory_*` / `skill_kb_query` 却没写进 `allowed-tools` | 这 5 个工具不再常驻，必须显式声明才能被挂载调用（见 7.4） |
-| `write_skill` 写入后指望本轮就能用新 Skill | Skill 挂载集每轮开始时解析一次，新 Skill 下一轮对话起才生效（见 9.4） |
+| `publish_skill` 成功后指望本轮就能用新 Skill | Skill 挂载集每轮开始时解析一次，新 Skill 下一轮对话起才生效（见 9.4） |
 | skill-creator 类 Skill 里 `name` 允许用中文/下划线 | `name` 必须 kebab-case，非 ASCII 字符会被规范化坍缩，正文需强制要求英文+连字符（见 9.3） |
