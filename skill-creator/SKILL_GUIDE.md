@@ -268,7 +268,7 @@ Skill 只能声明并使用平台已注册的工具。用户自建 Skill 还受 
 | `get_library_item` | 获取库条目详情（含媒体 s3 引用） | `item_id`（来自 `search_library`）；返回 `media[].uri`/`providers` |
 | `generate_image` | 文生图 / 图生图 | `prompt`；可选 `input_urls`、`orientation`、`resolution`、**`model`（写 channel，如 `t2i` / `i2i.hd`）**、`name`、`entity_type` |
 | `generate_video` | 文生视频 / 图生视频 / 参考生视频等（单镜头生成） | `prompt`；`input_urls`（`ref2v` 模式下至少 1 张参考图，`t2v` 可留空）；`orientation`、`resolution`、`duration`、**`model`（写 channel，如 `i2v` / `ref2v` / `t2v`；留空默认 `ref2v`；具体模型名会被拒绝）**、`name`、`entity_type` |
-| `video_agent` | 视频编辑/合成子 agent：一次提交完整自然语言任务 + 输入媒体，内部完成分析→剪辑→渲染（见 6.5） | `instruction`（必填）；`input_urls`（`asset_id` / https / `s3://`，或以 `/` 结尾的 `s3://` 前缀表示整个目录项目）；可选 `render_plan`（上一轮返回的不透明续跑令牌，原样回传）、`feedback`（仅与 `render_plan` 一起传）、`name`、`entity_type`（默认 `final_videos`）。**不接受** `model` |
+| `video_agent` | 视频/音频编辑与合成子 agent：一次提交完整自然语言任务 + 输入媒体，内部完成分析→剪辑→渲染（见 6.5） | `instruction`（必填）；`input_urls`（`asset_id` / https / `s3://`，或以 `/` 结尾的 `s3://` 前缀表示整个目录项目）；`output_type`（`video` 默认 / `audio`，纯音频产物必须传 `audio`）；可选 `output_format`（audio 默认 `mp3`，video 默认 `mp4`）、`render_plan`（上一轮返回的不透明续跑令牌，原样回传）、`feedback`（仅与 `render_plan` 一起传）、`name`、`entity_type`（video 默认 `final_videos`，audio 默认 `final_audios`）。**不接受** `model` |
 | `generate_tts` | 配音 | `text`；`voice_instruction`（`tts.design` 通道必填）或 `reference_audio_url`（`tts.clone` 通道必填）；可选 **`model`（写 channel，如 `tts.design` / `tts.clone`，模式完全由 channel 决定；留空按是否传了 `reference_audio_url` 自动选默认 channel）**、`name`、`entity_type` |
 | `generate_music` | 文生音乐 | `prompt`；可选 `lyrics`（歌词，留空则纯音乐/模型即兴）、**`model='music'`**、`model_type`、`output_format`、`name`、`entity_type` |
 | `mix_clips` | 多片段拼接混音 | `clips[]`（`video`/`videos` + `audio`/`audios`，每条轨道的 `url` 支持 asset_id / `s3://` / 真实 https，会自动解析预签名）；`name`、`entity_type`（对应 channel `clip-mixer`）；可选 `orientation`（画布占位方向，不影响合成结果，应与源片段方向一致，如竖屏短剧传 `portrait`） |
@@ -292,10 +292,10 @@ Skill 只能声明并使用平台已注册的工具。用户自建 Skill 还受 
 调用 `generate_image` / `generate_video` / `video_agent` / `generate_tts` / `generate_music` / `mix_clips` / `create_document` / `update_document` 等产物工具时：
 
 - 传简短 **`name`**（角色名、镜头标题、成片名、曲名、文档标题等），便于画布展示。
-- 传约定的 **`entity_type`**（未传时默认为 `skill_generation`；`video_agent` 例外，未传时默认为 `final_videos`）。常见取值：
+- 传约定的 **`entity_type`**（未传时默认为 `skill_generation`；`video_agent` 例外，视频产物默认 `final_videos`，音频产物默认 `final_audios`，见 6.5）。常见取值：
   - 图片：`characters` / `locations` / `props` / `storyboard_images`
   - 视频：`storyboard_videos` / `final_videos`
-  - 音频：按业务自定（如 `voiceovers` / `music`）
+  - 音频：`final_audios`（`video_agent` 纯音频产物的默认值）；配音/音乐等也可按业务自定（如 `voiceovers` / `music`）
   - 文档：按业务自定（如 `scripts` / `reports`）
 - **不要**让模型传 `group_id` / `index`（若系统有自动分配逻辑，由平台处理）。
 - `download_video` 返回的 `downloadUrl` **有时效**，需在 `expiresIn` 内使用。
@@ -353,7 +353,7 @@ canvas:
 
 **选型规则（写进 Skill 正文时）**：
 
-1. 先按用户意图确定模态（文生图 / 图生图 / 图生视频 / 首尾帧 / 音频驱动 / 参考生视频 / Director / 配音 / 音乐 / 拼接）。完整剪辑/合成（加字幕、用已有素材做教程、重组已有成片、目录项目）不走 channel，改用 `video_agent`（见 6.5）。
+1. 先按用户意图确定模态（文生图 / 图生图 / 图生视频 / 首尾帧 / 音频驱动 / 参考生视频 / Director / 配音 / 音乐 / 拼接）。完整剪辑/合成（加字幕、用已有素材做教程、重组已有成片、裁剪或导出音频、目录项目）不走 channel，改用 `video_agent`（见 6.5）。
 2. 选定工具后，在步骤里**硬编码** `model=<channel>`（及必要的输入约定：`input_urls`、`mode`、`audio_url`、`voice_instruction` 等）。需要 tagged binding 时用后缀（如 `model='t2i.hd'`）。
 3. 图生视频：统一用 `i2v`——视频生成不支持 NSFW/成人内容，没有对应的 tagged 变体。
 4. 参考生视频：传 `model='ref2v'` 即可（模态完全由 channel 决定，**不需要**再传 `gen_mode`）；至少 1 张参考图。若还需音频驱动，另传 `audio_url`（可选 `audio_start_time`），不要把音频 URL 塞进 `input_urls`。
@@ -392,25 +392,28 @@ canvas:
 
 > **参数边界（平台钳制）**：`resolution` / `duration` 存在平台上限（`max_resolution` 面积上限、`max_duration` 时长上限；按模型/channel 云端配置 + 全局兜底），`batch_size` 锁死为 1（不开放单次多张生成）。Skill 正文**不要**写死超长时长或大于 1 的批量数——越界参数（含超出模型能力的 `resolution`）在工具执行前会被自动钳制/降档，并在工具返回的 `param_adjustments` 字段中说明。未指定 `orientation`/`resolution` 时，走云端 channel 配置或平台默认档位（`landscape` + `720P`）。
 
-### 6.5 视频编辑子 agent（`video_agent`）
+### 6.5 视频/音频编辑子 agent（`video_agent`）
 
-`video_agent` 是独立的平台工具，负责**一次完整的视频编辑或合成任务**。它在用户工具天花板内（第 8 节），**不是** `generate_video` 的 channel，也不出现在 `available-models.md`。
+`video_agent` 是独立的平台工具，负责**一次完整的视频或音频编辑/合成任务**。它在用户工具天花板内（第 8 节），**不是** `generate_video` 的 channel，也不出现在 `available-models.md`。
 
-适用：用户要的是「自然语言任务 + 已有素材 → 一条成片」，且工作量超过单镜头生成。例如把照片做成带字幕的教程、剪辑或重组已有成片、渲染带目录结构的项目（html/css/js/素材）。
+适用：用户要的是「自然语言任务 + 已有素材 → 一条成片或一段音频」，且工作量超过单镜头生成。例如把照片做成带字幕的教程、剪辑或重组已有成片、渲染带目录结构的项目（html/css/js/素材）、从视频里抽出音轨、裁剪/导出一段音频。
 
 不要用它做：
 
 - 单次文生视频 / 图生视频 / 参考生视频 / 首尾帧 / 音频驱动 → `generate_video` + 第 6.3 节的 channel
 - 把已知片段和音轨按清单拼接 → `mix_clips`
+- 从零配音 / 文生音乐 → `generate_tts` / `generate_music`
 
 写进 Skill 正文的调用约定（不要复制整份工具 schema）：
 
 - 一次调用 = 一个完整任务。`instruction` 写完整自然语言说明。**不要**自行拆成 analyze / edit / hint / render 多次调用，管道在工具内部闭环。
 - `input_urls`：任务引用的媒体。本对话已有资产优先传 `asset_id`；也支持 https 与 `s3://`。传入整个目录项目时，传一个以 `/` 结尾的 `s3://` 前缀（如 `s3://bucket/projects/proj_abc/`），不要逐文件罗列。
+- **`output_type`**：产物种类，`video`（默认）或 `audio`。交付物是纯音频（无视频流：裁剪音轨、从视频提取音频、播客/音乐导出）时**必须**传 `audio`。省略时平台按视频处理——资产 id、画布卡片和 S3 对象都会是视频，即使用户要的是音频。
+- **`output_format`**：可选容器扩展名，不带点。audio 默认 `mp3`（另允许 `wav` / `m4a` / `aac` / `flac` / `ogg`）；video 默认 `mp4`（另允许 `webm` / `mov`）。上传地址的扩展名在提交时就按它定死，最终产物必须是同一种容器；白名单外的值会直接失败、不提交任务。Skill 正文只在需要非默认容器时写死它。
 - **不要**传 `model`。后端 channel 由服务端配置，写 channel 名或物理模型名都是错的。
-- `name`：简短画布标题。`entity_type` 省略时默认为 `final_videos`（不是 `skill_generation`）；多阶段 Skill 需要和其他视频阶段区分时，改成固定的 snake_case 值（见 6.2）。
+- `name`：简短画布标题。`entity_type` 省略时随 `output_type`：视频为 `final_videos`，音频为 `final_audios`（都不是 `skill_generation`）。多阶段 Skill 需要和其他阶段区分时，改成固定的 snake_case 值（见 6.2）。
 - 一次调用可能持续数分钟。正文应要求等待本次工具返回，运行中不要轮询或重复提交同一任务。
-- 两段式确认：返回里可能带不透明的 `render_plan`（以及预览 URL），而不是成片。把预览给用户看，再用**同一**任务上下文、**原样**回传 `render_plan`，并把用户的回复放进 `feedback`（同意或修改意见）再调一次。不要改写或编造该令牌，也不要把「只有预览」当成成片或编造 URL。
+- 两段式确认：返回里可能带不透明的 `render_plan`（以及预览 URL），而不是成片。把预览给用户看，再用**同一**任务上下文、**原样**回传 `render_plan`，并把用户的回复放进 `feedback`（同意或修改意见）再调一次；续跑时同样带上原来的 `output_type` / `output_format`。不要改写或编造该令牌，也不要把「只有预览」当成成片或编造 URL。
 - 不支持 NSFW / 成人视频：拒绝请求，不要调用。
 - 失败且没有 `render_plan` 时如实告知错误。
 
@@ -698,7 +701,7 @@ timezone: UTC             # 可选，IANA 时区名；默认 UTC+0（全球用�
 
 见 `examples/skill_creator/`（第 9 节）：
 
-- `skills/skill-creator/SKILL.md`：`allowed-tools` 声明创作工具（`list_my_skills` / `read_my_skill` / `read_my_skill_file` / `write_skill` / `write_skill_reference_file` / `bind_skill_preset_asset` / `unbind_skill_preset_asset`）；正文区分「新建」「修改既有」「查看」三条流程，写入即生效、无单独发布步；涉及媒体生成时要求先读 `available-models.md` 并写死 **channel**；完整剪辑/合成任务要求声明 `video_agent` 并按编写指南 5.3 节写调用约定（不传 `model`）
+- `skills/skill-creator/SKILL.md`：`allowed-tools` 声明创作工具（`list_my_skills` / `read_my_skill` / `read_my_skill_file` / `write_skill` / `write_skill_reference_file` / `bind_skill_preset_asset` / `unbind_skill_preset_asset`）；正文区分「新建」「修改既有」「查看」三条流程，写入即生效、无单独发布步；涉及媒体生成时要求先读 `available-models.md` 并写死 **channel**；完整剪辑/合成任务（含纯音频导出）要求声明 `video_agent` 并按编写指南 5.3 节写调用约定（`output_type`，不传 `model`）
 - `references/skill-writing-guide.md`：面向"帮用户写 Skill 的 Skill"的编写规范，含 kebab-case 命名约束、天花板内工具清单、**channel 选型**、产出前检查清单
 - `references/available-models.md`：平台 channel 目录（权威）；起草时硬编码 channel，禁止物理模型名
 - `orchestrator_config.yaml`：说明性配置，示范挂在 `skill_agent` 动态挂载 workflow 下
@@ -717,7 +720,7 @@ timezone: UTC             # 可选，IANA 时区名；默认 UTC+0（全球用�
 - [ ] 正文含「何时使用 / 步骤 / 注意事项」（或多阶段索引 + 协作原则）
 - [ ] 步骤中的工具名与 `allowed-tools` 一致；关键参数（`name`、`entity_type`、`orientation`、生成步骤的 **`model=<channel>`** 等）有约定
 - [ ] 涉及媒体生成时：已按第 6.3 节绑定正确 **channel**（对照 `available-models.md`；无物理模型名；视频生成不支持 NSFW/成人内容）
-- [ ] 完整视频剪辑/合成任务使用 `video_agent`（一次 `instruction` + `input_urls`，不拆阶段、不传 `model`）；单镜头生成仍用 `generate_video` + channel；已知片段拼接用 `mix_clips`（见 6.5）
+- [ ] 完整视频/音频剪辑与合成任务使用 `video_agent`（一次 `instruction` + `input_urls`，不拆阶段、不传 `model`）；纯音频产物必须写 `output_type='audio'`（需要非默认容器时再写 `output_format`）；单镜头生成仍用 `generate_video` + channel；已知片段拼接用 `mix_clips`（见 6.5）
 - [ ] 未引入 `data_schemas` / `operations` / 伪 JSON 状态协议
 - [ ] 未依赖 Skill 包内 `scripts/`（不会被解析或执行）
 - [ ] 长内容已拆到 `references/`，正文明确「按需 `read_skill_file`、不要一次全读」
@@ -743,6 +746,7 @@ timezone: UTC             # 可选，IANA 时区名；默认 UTC+0（全球用�
 | 忘记声明 `generate_image` 却在步骤里调用 | `allowed-tools` 与正文步骤保持一致 |
 | 生成步骤硬编码物理模型名（`rm3.1-G`、`qwen-image`…） | 写稳定 **channel**（`i2v`、`t2i`…）；对照 `available-models.md`（见 6.3） |
 | 把剪辑、加字幕、多文件项目拆成多次 `generate_video` | 这类完整任务用一次 `video_agent`（不传 `model`）；单镜头生成才用 `generate_video`（见 6.5） |
+| 用 `video_agent` 导出音频却不传 `output_type` | 纯音频必须 `output_type='audio'`，否则资产会按视频入库（`video_*` / `final_videos` / `.mp4`）；非默认容器再传 `output_format`（见 6.5） |
 | 用 `list_models` 现场猜模型代替 channel 目录 | 起草时以 `available-models.md` 为准；`list_models` 仅兜底 |
 | 阶段之间每次都问「是否继续」 | 默认连续推进；仅用户要求确认时停下 |
 | 用户 Skill 里声明 `write_skill_draft` / `publish_skill` 等创作工具 | 仅官方 Skill 可声明，不在用户天花板内（见第 9 节），否则用户 Skill 可自我繁殖 |
