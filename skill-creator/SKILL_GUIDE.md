@@ -271,7 +271,7 @@ Skill 只能声明并使用平台已注册的工具。用户自建 Skill 还受 
 | `video_agent` | 视频/音频编辑与合成子 agent：一次提交完整自然语言任务 + 输入媒体，内部完成分析→剪辑→渲染（见 6.5） | `instruction`（必填）；`input_urls`（`asset_id` / https / `s3://`，或以 `/` 结尾的 `s3://` 前缀表示整个目录项目）；`output_type`（`video` 默认 / `audio`，纯音频产物必须传 `audio`）；可选 `output_format`（audio 默认 `mp3`，video 默认 `mp4`）、`render_plan`（上一轮返回的不透明续跑令牌，原样回传）、`feedback`（仅与 `render_plan` 一起传）、`name`、`entity_type`（video 默认 `final_videos`，audio 默认 `final_audios`）。**不接受** `model` |
 | `generate_tts` | 配音 | `text`；`voice_instruction`（`tts.design` 通道必填）或 `reference_audio_url`（`tts.clone` 通道必填）；可选 **`model`（写 channel，如 `tts.design` / `tts.clone`，模式完全由 channel 决定；留空按是否传了 `reference_audio_url` 自动选默认 channel）**、`name`、`entity_type` |
 | `generate_music` | 文生音乐 | `prompt`；可选 `lyrics`（歌词，留空则纯音乐/模型即兴）、**`model='music'`**、`model_type`、`output_format`、`name`、`entity_type` |
-| `mix_clips` | 多片段拼接混音 | `clips[]`（`video`/`videos` + `audio`/`audios`，每条轨道的 `url` 支持 asset_id / `s3://` / 真实 https，会自动解析预签名）；`name`、`entity_type`（对应 channel `clip-mixer`）；可选 `orientation`（画布占位方向，不影响合成结果，应与源片段方向一致，如竖屏短剧传 `portrait`） |
+| `mix_clips` | 多片段拼接混音，可选按 clip 烧录硬字幕 | `clips[]`（`video`/`videos` + `audio`/`audios`，可选 `subtitles`：`url`（.srt/.vtt/.ass）与 `items`（`text`/`start`/`end`，相对该 clip 输出起点）二选一，可选 `style`）；轨道 `url` 与 `subtitles.url` 支持 asset_id / `s3://` / 真实 https，会自动解析预签名；`name`、`entity_type`（对应 channel `clip-mixer`）；可选 `orientation`（画布占位方向，不影响合成结果，应与源片段方向一致，如竖屏短剧传 `portrait`） |
 | `split_image` | 图片网格切割为瓦片 | `input_urls`；可选 `rows`、`cols`、`output_format`、`quality`、`border` |
 | `recognize_image` | 识图 / 看图描述 | `image_url` 或 `image_base64`；可选 `prompt`、`media_type`、`model` |
 | `recognize_video` | 视频理解 / 描述 | `video_url`；可选 `prompt`、`model` |
@@ -346,7 +346,7 @@ canvas:
 | `ai2v` | `generate_video` | 图 + 音频驱动生视频 |
 | `t2v` | `generate_video` | 通用文生/图生视频；显式传 `model='t2v'` 时 `input_urls` 可留空（纯文生视频） |
 | `ref2v` | `generate_video` | 参考生视频（保角色一致性）；模态由 channel 直接决定，**无需**再传 `gen_mode`；至少 1 张参考图；可选 `audio_url`、`orientation`；**`model` 缺省时的默认 channel** |
-| `clip-mixer` | `mix_clips` | 多片段拼接混音（合成通道，非生成模型） |
+| `clip-mixer` | `mix_clips` | 多片段拼接混音，可选按 clip 烧录硬字幕（合成通道，非生成模型） |
 | `tts.design` / `tts.clone` | `generate_tts` | 模态由 channel 直接决定，**无需**再传 `mode`：`tts.design` 声音设计（需 `voice_instruction`）/ `tts.clone` 声音克隆（需 `reference_audio_url`） |
 | `music` | `generate_music` | 文生音乐 |
 | `asr` | `transcribe_audio` | 语音转写 |
@@ -377,7 +377,7 @@ canvas:
 - 短剧默认 `orientation='portrait'`，除非用户明确要求横屏；分辨率无特殊要求时不传 `resolution`（走默认 `720P`）。
 - 图片/视频 prompt 使用英文；对白文本保持用户语言。
 - 图生视频：分镜静帧 URL 放入 `input_urls`（第 1 张为首帧）；`model='i2v'`（视频生成不支持 NSFW/成人内容）。
-- `mix_clips` 的 `clips[].video(s)/audio(s).url` 优先传本对话已生成资产的 asset_id（也支持 `s3://`/真实 https），禁止编造不存在的引用。
+- `mix_clips` 的 `clips[].video(s)/audio(s).url` 以及 `clips[].subtitles.url` 优先传本对话已生成资产的 asset_id（也支持 `s3://`/真实 https），禁止编造不存在的引用。字幕是硬字幕（烧进画面）；`subtitles.url` 与 `subtitles.items` 二选一，时间轴相对该 clip 输出起点。中文建议 `style.font_name='Noto Sans CJK SC'`。
 ```
 
 不要在 Skill 里复制整份工具 JSON Schema；只写本业务关心的字段与取值约定即可。模型侧仍能看到工具的 function calling schema。
