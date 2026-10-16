@@ -270,7 +270,8 @@ Skill 只能声明并使用平台已注册的工具。用户自建 Skill 还受 
 | `generate_video` | 文生视频 / 图生视频 / 参考生视频等 | `prompt`；`input_urls`（`ref2v` 模式下至少 1 张参考图，`t2v` 可留空）；`orientation`、`resolution`、`duration`、**`model`（写 channel，如 `i2v` / `ref2v` / `t2v`；留空默认 `ref2v`；具体模型名会被拒绝）**、`name`、`entity_type` |
 | `generate_tts` | 配音 | `text`；`voice_instruction`（`tts.design` 通道必填）或 `reference_audio_url`（`tts.clone` 通道必填）；可选 **`model`（写 channel，如 `tts.design` / `tts.clone`，模式完全由 channel 决定；留空按是否传了 `reference_audio_url` 自动选默认 channel）**、`name`、`entity_type` |
 | `generate_music` | 文生音乐 | `prompt`；可选 `lyrics`（歌词，留空则纯音乐/模型即兴）、**`model='music'`**、`model_type`、`output_format`、`name`、`entity_type` |
-| `mix_clips` | 多片段拼接混音，可选按 clip 烧录硬字幕 | `clips[]`（`video`/`videos` + `audio`/`audios`，可选 `subtitles`：`url`（.srt/.vtt/.ass）与 `items`（`text`/`start`/`end`，相对该 clip 输出起点）二选一，可选 `style`）；轨道 `url` 与 `subtitles.url` 支持 asset_id / `s3://` / 真实 https，会自动解析预签名；`name`、`entity_type`（对应 channel `clip-mixer`）；可选 `orientation`（画布占位方向，不影响合成结果，应与源片段方向一致，如竖屏短剧传 `portrait`） |
+| `mix_clips` | 多片段拼接混音，可选按 clip 烧录整句硬字幕 | `clips[]`（`video`/`videos` + `audio`/`audios`，可选 `subtitles`：`url`（.srt/.vtt/.ass）与 `items`（`text`/`start`/`end`，相对该 clip 输出起点）二选一，可选 `style`）；轨道 `url` 与 `subtitles.url` 支持 asset_id / `s3://` / 真实 https，会自动解析预签名；`name`、`entity_type`（对应 channel `clip-mixer`）；可选 `orientation`（画布占位方向，不影响合成结果，应与源片段方向一致，如竖屏短剧传 `portrait`） |
+| `caption_video` | 给一条成片加 TikTok / Reels 式逐词高亮字幕，返回新 MP4 | `video_url`（必填）；可选 `input_type`（`video` 默认 / `audio`）、`template`（默认 `hormozi`；优先 `mega-stroke` / `cloud-glow` / `sunset-panel` / `italic-heavy-stroke` / `ink-on-white`；访谈 `podcast-clean` 或 `soft-minimal`；新闻条 `lower-third`；未知 ID 会拒绝）、`size`（`sm`/`md`/`lg`）、`position`（`bottom`/`middle`/`top`）、`language`（默认 `auto`）、`dictionary`、`emoji_enabled`、`particles_enabled`、`custom_template`（白名单浅覆盖，禁止 `font_path`）、`name`、`entity_type`（默认 `final_videos`）。**不要传 `model`，不要传 `words`**（服务自己做 ASR）。不返回文稿；文稿用 `transcribe_audio`。不是 `mix_clips` 的整句字幕 |
 | `split_image` | 图片网格切割为瓦片 | `input_urls`；可选 `rows`、`cols`、`output_format`、`quality`、`border` |
 | `probe_media` | 探测视频/音频媒体信息（clip-mixer 服务，无 channel） | `url`（asset_id / `s3://` / https）；返回 `probe`：`duration`/`width`/`height`/`fps`/`video_codec`/`audio_codecs`/`has_video`/`has_audio`；交互型，不上画布 |
 | `extract_clip` | 按时间段剪切视频，每段输出 1 个独立视频（不拼接；clip-mixer 服务，无 channel） | `url`、`segments[]`（`{start, duration}` 或 `{start, end}`，二选一，至少 1 段）；可选 `accurate`（默认 `false`=流复制、切点对齐关键帧；`true`=重编码帧精确）、`output_format`（`mp4`/`mov`/`mkv`）、`name`、`entity_type`（默认 `video_clips`）、`orientation`（画布占位方向）；要拼接或重排这些片段时把产物 `asset_id` 交给 `mix_clips` |
@@ -286,18 +287,18 @@ Skill 只能声明并使用平台已注册的工具。用户自建 Skill 还受 
 | `update_document` | 对已有 document 资产原地更新（同一 asset_id，画布卡片原地刷新，不产生新资产） | `asset_id`、`content`（全量覆盖）；可选 `name`、`content_type`、`entity_type`（不传则沿用原文档） |
 | `get_document` | 按 asset_id 读取 document 资产正文 | `asset_id`（来自 `create_document` 或用户上传的文档） |
 
-生成类 / 处理类产物工具（`generate_*`、`split_image`、`mix_clips`、`extract_clip`、`extract_frame`、`extract_audio`、`create_document`、`update_document`）成功后，资产会进入画布（若 workflow `add_to_canvas: true`）。`probe_media` / `recognize_image` / `recognize_video` / `transcribe_audio` / `fetch_video_info` / `download_video` / `get_document` / `search_web` / `search_library` / `get_library_item` 为交互型结果，不上画布。
+生成类 / 处理类产物工具（`generate_*`、`split_image`、`mix_clips`、`caption_video`、`extract_clip`、`extract_frame`、`extract_audio`、`create_document`、`update_document`）成功后，资产会进入画布（若 workflow `add_to_canvas: true`）。`probe_media` / `recognize_image` / `recognize_video` / `transcribe_audio` / `fetch_video_info` / `download_video` / `get_document` / `search_web` / `search_library` / `get_library_item` 为交互型结果，不上画布。
 
 **资产库用法（`search_library` → `get_library_item` → 生成工具）**：先用 `search_library` 按关键字/类别/范围检索公共库或个人库（返回紧凑的 `uri`+`providers`，无预签名 URL），再用 `get_library_item(item_id=...)` 拿到 `media[].uri` / `providers`，写入项目资产或作为 `generate_image(input_urls=[uri])`、`generate_video`、`recognize_image` 的输入（传 s3://，系统执行前自动预签名）。
 
 ### 6.2 画布资产约定（强烈建议在 Skill 中写明）
 
-调用 `generate_image` / `generate_video` / `generate_tts` / `generate_music` / `mix_clips` / `extract_clip` / `extract_frame` / `extract_audio` / `create_document` / `update_document` 等产物工具时：
+调用 `generate_image` / `generate_video` / `generate_tts` / `generate_music` / `mix_clips` / `caption_video` / `extract_clip` / `extract_frame` / `extract_audio` / `create_document` / `update_document` 等产物工具时：
 
 - 传简短 **`name`**（角色名、镜头标题、成片名、曲名、文档标题等），便于画布展示。
 - 传约定的 **`entity_type`**（未传时默认为 `skill_generation`）。常见取值：
   - 图片：`characters` / `locations` / `props` / `storyboard_images`
-  - 视频：`storyboard_videos` / `final_videos`
+  - 视频：`storyboard_videos` / `final_videos`（`caption_video` 未传时默认 `final_videos`）
   - 音频：按业务自定（如 `voiceovers` / `music`）
   - 文档：按业务自定（如 `scripts` / `reports`）
 - **不要**让模型传 `group_id` / `index`（若系统有自动分配逻辑，由平台处理）。
@@ -349,14 +350,15 @@ canvas:
 | `ai2v` | `generate_video` | 图 + 音频驱动生视频 |
 | `t2v` | `generate_video` | 通用文生/图生视频；显式传 `model='t2v'` 时 `input_urls` 可留空（纯文生视频） |
 | `ref2v` | `generate_video` | 参考生视频（保角色一致性）；模态由 channel 直接决定，**无需**再传 `gen_mode`；至少 1 张参考图；可选 `audio_url`、`orientation`；**`model` 缺省时的默认 channel** |
-| `clip-mixer` | `mix_clips` | 多片段拼接混音，可选按 clip 烧录硬字幕（合成通道，非生成模型） |
+| `clip-mixer` | `mix_clips` | 多片段拼接混音，可选按 clip 烧录整句硬字幕（合成通道，非生成模型） |
+| `caption` | `caption_video` | 逐词高亮字幕。**Skill 不要传 `model`**：工具没有该参数，平台内部走 channel `caption`。写法见 6.4 |
 | `tts.design` / `tts.clone` | `generate_tts` | 模态由 channel 直接决定，**无需**再传 `mode`：`tts.design` 声音设计（需 `voice_instruction`）/ `tts.clone` 声音克隆（需 `reference_audio_url`） |
 | `music` | `generate_music` | 文生音乐 |
 | `asr` | `transcribe_audio` | 语音转写 |
 
 **选型规则（写进 Skill 正文时）**：
 
-1. 先按用户意图确定模态（文生图 / 图生图 / 图生视频 / 首尾帧 / 音频驱动 / 参考生视频 / Director / 配音 / 音乐 / 拼接）。
+1. 先按用户意图确定模态（文生图 / 图生图 / 图生视频 / 首尾帧 / 音频驱动 / 参考生视频 / Director / 配音 / 音乐 / 拼接 / 逐词高亮字幕）。
 2. 选定工具后，在步骤里**硬编码** `model=<channel>`（及必要的输入约定：`input_urls`、`mode`、`audio_url`、`voice_instruction` 等）。需要 tagged binding 时用后缀（如 `model='t2i.hd'`）。
 3. 图生视频：统一用 `i2v`——视频生成不支持 NSFW/成人内容，没有对应的 tagged 变体。
 4. 参考生视频：传 `model='ref2v'` 即可（模态完全由 channel 决定，**不需要**再传 `gen_mode`）；至少 1 张参考图。若还需音频驱动，另传 `audio_url`（可选 `audio_start_time`），不要把音频 URL 塞进 `input_urls`。
@@ -380,7 +382,8 @@ canvas:
 - 短剧默认 `orientation='portrait'`，除非用户明确要求横屏；分辨率无特殊要求时不传 `resolution`（走默认 `720P`）。
 - 图片/视频 prompt 使用英文；对白文本保持用户语言。
 - 图生视频：分镜静帧 URL 放入 `input_urls`（第 1 张为首帧）；`model='i2v'`（视频生成不支持 NSFW/成人内容）。
-- `mix_clips` 的 `clips[].video(s)/audio(s).url` 以及 `clips[].subtitles.url` 优先传本对话已生成资产的 asset_id（也支持 `s3://`/真实 https），禁止编造不存在的引用。字幕是硬字幕（烧进画面）；`subtitles.url` 与 `subtitles.items` 二选一，时间轴相对该 clip 输出起点。中文建议 `style.font_name='Noto Sans CJK SC'`。
+- `mix_clips` 的 `clips[].video(s)/audio(s).url` 以及 `clips[].subtitles.url` 优先传本对话已生成资产的 asset_id（也支持 `s3://`/真实 https），禁止编造不存在的引用。字幕是整句硬字幕（烧进画面）；`subtitles.url` 与 `subtitles.items` 二选一，时间轴相对该 clip 输出起点。中文建议 `style.font_name='Noto Sans CJK SC'`。
+- 逐词高亮（TikTok / Reels 那种逐词变色）用 `caption_video`，不要用 `mix_clips` 的 `subtitles`，也不要把 `transcribe_audio` 的 SRT 塞进 `words`。调用时不传 `model`、不传 `words`；正文里写死一个已知 `template`（默认 `hormozi`，优先 Top5：`mega-stroke`、`cloud-glow`、`sunset-panel`、`italic-heavy-stroke`、`ink-on-white`）。成功只返回新 MP4，不返回词级时间轴。这一步可能要十几到二十多分钟，正文不要写成即时完成、也不要让模型轮询。
 ```
 
 不要在 Skill 里复制整份工具 JSON Schema；只写本业务关心的字段与取值约定即可。模型侧仍能看到工具的 function calling schema。
@@ -540,6 +543,7 @@ canvas:
 - `generate_tts`
 - `generate_music`
 - `mix_clips`
+- `caption_video`
 - `list_models`
 - `search_library`
 - `get_library_item`
@@ -701,6 +705,7 @@ timezone: UTC             # 可选，IANA 时区名；默认 UTC+0（全球用�
 - [ ] 正文含「何时使用 / 步骤 / 注意事项」（或多阶段索引 + 协作原则）
 - [ ] 步骤中的工具名与 `allowed-tools` 一致；关键参数（`name`、`entity_type`、`orientation`、生成步骤的 **`model=<channel>`** 等）有约定
 - [ ] 涉及媒体生成时：已按第 6.3 节绑定正确 **channel**（对照 `available-models.md`；无物理模型名；视频生成不支持 NSFW/成人内容）
+- [ ] 逐词高亮字幕用 `caption_video`（不传 `model`、不传 `words`、`template` 用已知 ID），并写进 `allowed-tools`；不要用 `mix_clips` 字幕或 `transcribe_audio` 的 SRT 代替
 - [ ] 未引入 `data_schemas` / `operations` / 伪 JSON 状态协议
 - [ ] 未依赖 Skill 包内 `scripts/`（不会被解析或执行）
 - [ ] 长内容已拆到 `references/`，正文明确「按需 `read_skill_file`、不要一次全读」
@@ -725,6 +730,7 @@ timezone: UTC             # 可选，IANA 时区名；默认 UTC+0（全球用�
 | 假设有 `characters` 集合可 update | 用 Markdown 写设定，用画布 URL 引用已生成资产 |
 | 忘记声明 `generate_image` 却在步骤里调用 | `allowed-tools` 与正文步骤保持一致 |
 | 生成步骤硬编码物理模型名（`rm3.1-G`、`qwen-image`…） | 写稳定 **channel**（`i2v`、`t2i`…）；对照 `available-models.md`（见 6.3） |
+| 用 `mix_clips` 字幕或 `transcribe_audio` 的 SRT 做逐词高亮 | 用 `caption_video`：不传 `model`、不传 `words`，写死已知 `template`。文稿仍走 `transcribe_audio`；要拼接或整句硬字幕才用 `mix_clips` |
 | 用 `list_models` 现场猜模型代替 channel 目录 | 起草时以 `available-models.md` 为准；`list_models` 仅兜底 |
 | 阶段之间每次都问「是否继续」 | 默认连续推进；仅用户要求确认时停下 |
 | 用户 Skill 里声明 `write_skill_draft` / `publish_skill` 等创作工具 | 仅官方 Skill 可声明，不在用户天花板内（见第 9 节），否则用户 Skill 可自我繁殖 |
