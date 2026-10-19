@@ -16,8 +16,8 @@ See `${SKILL_DIR}/SKILL_GUIDE.md` for writing rules (**required reading before y
 ## Local validation
 
 ```bash
-digenskill validate                # current directory by default
-digenskill validate ./my-skill-xxx
+digen skill validate                # current directory by default
+digen skill validate ./my-skill-xxx
 ```
 
 What it checks:
@@ -40,12 +40,12 @@ git -C <workspace> diff
 git -C <workspace> log --oneline
 ```
 
-A successful `digenskill push` auto-commits local changes. The default commit message is `push: <name> #<id>` (override with `-m`).
+A successful `digen skill push` auto-commits local changes. The default commit message is `push: <name> #<id>` (override with `-m`).
 
 ## After editing
 
 ```bash
-digenskill validate . && digenskill push .
+digen skill validate . && digen skill push .
 ```
 
 See `04-publish.md`.

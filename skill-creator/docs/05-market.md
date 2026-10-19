@@ -3,12 +3,12 @@
 ## Browse
 
 ```bash
-digenskill market                                  # discover tab by default
-digenskill market --tab favorites                  # my favorites
-digenskill market --tab mine                       # my own skills
-digenskill market --category ShortDrama --q image
-digenskill market --sort popular --limit 20
-digenskill market-categories                       # list valid category enums
+digen skill market                                  # discover tab by default
+digen skill market --tab favorites                  # my favorites
+digen skill market --tab mine                       # my own skills
+digen skill market --category ShortDrama --q image
+digen skill market --sort popular --limit 20
+digen skill categories                       # list valid category enums
 ```
 
 `--sort` supports `featured` (default, operator pins first) / `popular` / `recent`. `favorites` and `mine` ignore `--sort`.
@@ -16,8 +16,8 @@ digenskill market-categories                       # list valid category enums
 ## View details
 
 ```bash
-digenskill info <skill_id>
-digenskill info <slug>          # also works by slug
+digen skill info <skill_id>
+digen skill info <slug>          # also works by slug
 ```
 
 Whether the body is visible depends on the author's `content_visibility`: `open` (default) means anyone who can see the detail page can read the body; `closed` means only the author can (the skill is still discoverable, installable, and runnable — the source is just hidden).
@@ -25,8 +25,8 @@ Whether the body is visible depends on the author's `content_visibility`: `open`
 ## Install / uninstall
 
 ```bash
-digenskill install <skill_id>       # install (reference semantics; body is not copied; appears in my space)
-digenskill uninstall <skill_id>
+digen skill install <skill_id>       # install (reference semantics; body is not copied; appears in my space)
+digen skill uninstall <skill_id>
 ```
 
 Install is a **reference**: author updates do not affect you immediately (install-snapshot semantics). After the author ships a new approved version, your next conversation switches automatically.
@@ -34,7 +34,7 @@ Install is a **reference**: author updates do not affect you immediately (instal
 ## Fork
 
 ```bash
-digenskill fork <skill_id>
+digen skill fork <skill_id>
 ```
 
 Fork **copies** the body, reference files, and tool permissions into a new private skill owned by you. You can then edit it like a self-authored skill and request a listing on the web. Compared with install:
@@ -51,6 +51,6 @@ Only official skills or publicly listed, approved skills can be forked. Skills w
 ## Favorites
 
 ```bash
-digenskill favorite <skill_id>
-digenskill favorite <skill_id> --remove
+digen skill favorite <skill_id>
+digen skill favorite <skill_id> --remove
 ```

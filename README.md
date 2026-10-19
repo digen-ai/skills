@@ -1,14 +1,16 @@
 # skills
 
-A skill-authoring kit for **regular users** of the Digen platform: a command-line tool (for creating, editing, uploading, and marketplace actions) plus an agent skill pack that helps you create and modify skills. Marketplace listing is done on the web UI.
+A skill-authoring kit for **regular users** of the Digen platform: the `digen` CLI (for creating, editing, uploading, publishing, and marketplace actions) plus an agent skill pack that helps you create and modify skills.
 
 ## Layout
 
 ```
 skills/
-├── cli/                # digenskill CLI (Python package digen-skill-cli)
-└── skill-creator/      # user-side skill-authoring agent pack (SKILL.md)
+└── skill-creator/      # user-side skill-authoring agent pack (SKILL.md + docs)
 ```
+
+The skill commands are part of the `digen-cli` npm package. There is no separate
+Python `digenskill` CLI anymore.
 
 ## Quick start
 
@@ -18,44 +20,44 @@ skills/
 skill-creator/scripts/install.sh
 ```
 
-Or install manually (requires [uv](https://docs.astral.sh/uv/)):
+Or install manually (requires Node.js >=20):
 
 ```bash
-uv tool install --force --editable cli/
+npm install -g digen-cli
 ```
 
 ### 2. Log in
 
 ```bash
-digenskill config set-api https://api.digen.ai   # default; usually no change needed
-digenskill login                                  # Google (the only supported method)
-# or digenskill login --token <token>     (SSH / paste fallback)
+digen config set-api https://api.digen.ai   # default; usually no change needed
+digen login                                  # Google (the only supported method)
+# or digen login --token <token>     (SSH / paste fallback)
 ```
 
 ### 3. Create your first skill
 
 ```bash
-digenskill init my-first-skill -d "Use when the user wants to..."
+digen skill init my-first-skill -d "Use when the user wants to..."
 cd ~/.digen/skills/my-first-skill-<timestamp>
 # edit SKILL.md ...
-digenskill validate .
-digenskill push .
-# then publish from the web UI
+digen skill validate .
+digen skill push .
+digen skill publish <skill_id>       # or use the web UI for rich listing fields
 ```
 
-Full command docs live in `skill-creator/docs/`. Mount `skill-creator` for the AI and you can create skills conversationally (the AI will run `digenskill` for you).
+Full command docs live in `skill-creator/docs/`. Mount `skill-creator` for the AI and you can create skills conversationally (the AI will run `digen skill` for you).
 
 ## Command cheat sheet
 
 | Command | Description |
 |---------|-------------|
-| `digenskill login` / `config *` | Log in and configure |
-| `digenskill list` / `market` / `info <id>` | Browse my space / marketplace / details |
-| `digenskill init <name>` / `checkout <id>` | Create a local template / check out an existing skill |
-| `digenskill validate [path]` | Validate SKILL.md locally |
-| `digenskill push [path]` | Pack and upload (create new or overwrite live content) |
-| `digenskill unpublish <id>` | Make a listed skill private |
-| `digenskill install <id>` / `uninstall <id>` | Install / uninstall a marketplace skill |
-| `digenskill delete <id>` / `toggle <id> on\|off` | Delete / enable or disable |
+| `digen login` / `digen config *` | Log in and configure |
+| `digen skill list` / `market` / `info <id>` | Browse my space / marketplace / details |
+| `digen skill init <name>` / `checkout <id>` | Create a local template / check out an existing skill |
+| `digen skill validate [path]` | Validate SKILL.md locally |
+| `digen skill push [path]` | Pack and upload (create new or overwrite live content) |
+| `digen skill publish <id>` / `unpublish <id>` | Request public listing / make private |
+| `digen skill install <id>` / `uninstall <id>` | Install / uninstall a marketplace skill |
+| `digen skill delete <id>` / `digen skill enable <id>` / `digen skill disable <id>` | Delete / enable / disable |
 
-See `digenskill --help` for details.
+See `digen skill --help` for details.

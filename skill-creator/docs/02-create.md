@@ -3,7 +3,7 @@
 ## View my space
 
 ```bash
-digenskill list
+digen skill list
 ```
 
 Returns two groups: **Built-in Skills** (`builtin`, mounted by the platform by default, does not count against space quota) and **My Space** (`space`, self-authored plus installed marketplace skills).
@@ -11,8 +11,8 @@ Returns two groups: **Built-in Skills** (`builtin`, mounted by the platform by d
 ## Create a local template
 
 ```bash
-digenskill init my-skill -d "Use when the user wants to…"
-digenskill init my-skill --display-name "My Skill" -d "..." --as demo   # custom directory suffix
+digen skill init my-skill -d "Use when the user wants to…"
+digen skill init my-skill --display-name "My Skill" -d "..." --as demo   # custom directory suffix
 ```
 
 Creates `~/.digen/skills/my-skill-<suffix>/` with a minimal `SKILL.md` (frontmatter plus a When to use / Steps / Notes skeleton) and runs `git init` plus a baseline commit. Nothing is uploaded yet.
@@ -20,13 +20,13 @@ Creates `~/.digen/skills/my-skill-<suffix>/` with a minimal `SKILL.md` (frontmat
 ## Check out an existing skill
 
 ```bash
-digenskill checkout <skill_id>
-digenskill checkout <skill_id> --as fix-desc     # custom directory suffix
-digenskill checkout <skill_id> --force           # overwrite if the directory already exists
+digen skill checkout <skill_id>
+digen skill checkout <skill_id> --as fix-desc     # custom directory suffix
+digen skill checkout <skill_id> --force           # overwrite if the directory already exists
 ```
 
 - This pulls the current **live content** (user skills have no draft stage — what you check out is exactly what is running).
-- The workspace writes a `.digen-skill-id` marker so later `digenskill push` in that directory does not need `--id`.
+- The workspace writes a `.digen-skill-id` marker so later `digen skill push` in that directory does not need `--id`.
 - Also runs `git init` plus a baseline commit so you can `git diff` later.
 
 ## Directory layout

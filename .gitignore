@@ -17,5 +17,5 @@ uv.lock
 .DS_Store
 *.swp
 
-# Local skill workspaces created by digenskill CLI for manual testing
+# Local skill workspaces created by the digen CLI for manual testing
 /tmp-workspace/
