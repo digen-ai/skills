@@ -1,97 +1,97 @@
-# Skill Agent 技能编写指南
+# Skill Agent Authoring Guide
 
-本文档指导如何为 **`skill_agent` workflow**（`AgentHarness`）编写 Skills。
+This document explains how to write Skills for the **`skill_agent` workflow** (`AgentHarness`).
 
-> | | Skill Agent Harness（当前唯一路径） |
+> | | Skill Agent Harness (the only current path) |
 > |---|---|
-> | 编排器 | `core.agent.harness.agent.AgentHarness` |
-> | 配置入口 | **`SKILL.md` 包**（+ 可选极简 `orchestrator_config.yaml`） |
-> | 状态模型 | **无结构化项目状态**；进度靠对话 + 画布资产 + `write_todos` |
-> | 能力来源 | 单 Agent + **渐进式披露的 Skill 指令** + 平台云端工具 |
-> | 适用场景 | 可组合、可上传的能力包；用户/官方 Skill 市场 |
+> | Orchestrator | `core.agent.harness.agent.AgentHarness` |
+> | Config entry | **`SKILL.md` package** (+ an optional minimal `orchestrator_config.yaml`) |
+> | State model | **No structured project state**; progress lives in the conversation + canvas assets + `write_todos` |
+> | Capabilities | A single agent + **progressively disclosed Skill instructions** + platform cloud tools |
+> | When to use | Composable, uploadable capability packs; user and official Skill marketplaces |
 
-**不要**用已下线的 `data_schemas` / `operations` / Agent prompt YAML 来写 Skill。Skill 是给模型读的 **Markdown 操作手册**，不是数据契约配置。
+**Do not** write a Skill with the retired `data_schemas` / `operations` / Agent prompt YAML. A Skill is a **Markdown playbook** the model reads, not a data-contract config.
 
-参考实现：
+Reference implementations:
 
-- Skill 创作工具（对话中创建/发布用户 Skill）：`examples/skill_creator/` + `packages/core/src/core/tools/skill_authoring.py`
-- 编排器：`packages/core/src/core/agent/harness/agent.py`
-- 解析器：`packages/core/src/core/agent/skills/skill_loader.py`
-
----
-
-## 目录
-
-1. [工作原理（渐进式披露）](#1-工作原理渐进式披露)
-2. [Skill 目录结构](#2-skill-目录结构)
-3. [SKILL.md 格式](#3-skillmd-格式)
-4. [编写正文（body）](#4-编写正文body)
-5. [多阶段 Skill 与 references/](#5-多阶段-skill-与-references)
-6. [平台工具清单与常用参数](#6-平台工具清单与常用参数)
-7. [常驻工具（read_skill / write_todos / set_guidance）与需声明的记忆工具（memory_*）](#7-常驻工具)
-8. [用户 Skill 限制（天花板）](#8-用户-skill-限制天花板)
-9. [Skill 创作工具（skill-creator，仅官方 Skill 可声明）](#9-skill-创作工具skill-creator仅官方-skill-可声明)
-10. [orchestrator_config（可选）](#10-orchestrator_config可选)
-11. [完整示例](#11-完整示例)
-12. [AI 编写检查清单](#12-ai-编写检查清单)
+- Skill authoring tools (create and publish a user Skill in conversation): `examples/skill_creator/` + `packages/core/src/core/tools/skill_authoring.py`
+- Orchestrator: `packages/core/src/core/agent/harness/agent.py`
+- Parser: `packages/core/src/core/agent/skills/skill_loader.py`
 
 ---
 
-## 1. 工作原理（渐进式披露）
+## Contents
 
-Skill Agent **不会**把每个 Skill 的全文塞进系统 prompt。披露分三层：
+1. [How it works (progressive disclosure)](#1-how-it-works-progressive-disclosure)
+2. [Skill directory layout](#2-skill-directory-layout)
+3. [SKILL.md format](#3-skillmd-format)
+4. [Writing the body](#4-writing-the-body)
+5. [Multi-stage Skills and references/](#5-multi-stage-skills-and-references)
+6. [Platform tool catalog and common parameters](#6-platform-tool-catalog-and-common-parameters)
+7. [Always-available tools (`read_skill` / `write_todos` / `set_guidance`) and memory tools that must be declared (`memory_*`)](#7-always-available-tools)
+8. [User Skill limits (ceiling)](#8-user-skill-limits-ceiling)
+9. [Skill authoring tools (skill-creator, official Skills only)](#9-skill-authoring-tools-skill-creator-official-skills-only)
+10. [orchestrator_config (optional)](#10-orchestrator_config-optional)
+11. [Complete examples](#11-complete-examples)
+12. [AI authoring checklist](#12-ai-authoring-checklist)
+
+---
+
+## 1. How it works (progressive disclosure)
+
+The Skill Agent does **not** stuff every Skill's full text into the system prompt. Disclosure has three layers:
 
 ```
-第一层（系统 prompt）  → 仅 name + description（索引，用于判断是否相关）
-        ↓ 模型调用 read_skill(name)
-第二层（工具返回）     → SKILL.md 正文 body + allowed_tools + reference_files 路径列表 + preset_assets 清单
-        ↓ 模型按需调用 read_skill_file(name, path)
-第三层（工具返回）     → references/ 下某个文本文件的完整内容
+Layer 1 (system prompt)   → name + description only (an index, used to judge relevance)
+        ↓ model calls read_skill(name)
+Layer 2 (tool result)     → SKILL.md body + allowed_tools + reference_files paths + preset_assets list
+        ↓ model calls read_skill_file(name, path) as needed
+Layer 3 (tool result)     → the full text of one file under references/
 ```
 
-因此：
+Therefore:
 
-- **`description` 必须写好**：这是模型决定要不要 `read_skill` 的唯一依据。写得太窄会漏触发，太宽会误触发。
-- **正文要可执行**：`read_skill` 之后，模型应能按步骤完成任务，不要假设它还记得别的配置文件。
-- **细节放 references/**：长流程、模板、示例拆到引用文件，正文只放索引表 + 协作原则，避免一次读入过长上下文。
-- **媒体走预设资产**：品牌 Logo、角色底图、参考配音等图片/视频/音频**不要**放进 zip；用公共 `preset_assets` 清单（含 `asset_id` + 稳定 `s3://` uri），见下文「预设资产」。
+- **`description` must be written well.** It is the model's only basis for deciding whether to `read_skill`. Too narrow and the Skill is missed; too broad and it fires by mistake.
+- **The body must be executable.** After `read_skill`, the model should be able to finish the task step by step. Do not assume it still remembers some other config file.
+- **Put details in `references/`.** Split long workflows, templates, and examples into reference files. Keep the body to an index table plus collaboration principles, so one read does not pull in a huge context.
+- **Media goes through preset assets.** Do **not** put brand logos, character base images, reference voice clips, or other images/videos/audio into the zip. Use the public `preset_assets` list (`asset_id` + a stable `s3://` uri). See "Preset assets" below.
 
-常驻可用（不依赖 `allowed-tools`）：`read_skill`、`read_skill_file`、`write_todos`；若 workflow 开启 `suggested_questions`（默认开），还有 `set_guidance`。**注意**：`memory_whoami` / `memory_query` / `skill_kb_query` / `memory_store` / `memory_forget` **不是**常驻工具，需要长期记忆/共享知识库能力的 Skill 必须在自己的 `allowed-tools` 里显式声明（见第 7.4 节）。
+Always available (independent of `allowed-tools`): `read_skill`, `read_skill_file`, `write_todos`. If the workflow has `suggested_questions` enabled (on by default), `set_guidance` is available too. **Note:** `memory_whoami` / `memory_query` / `skill_kb_query` / `memory_store` / `memory_forget` are **not** always available. A Skill that needs long-term memory or a shared knowledge base must declare those tools explicitly in its own `allowed-tools` (see section 7.4).
 
-可执行能力 **只来自平台云端工具**（`generate_image`、`search_web`、`memory_*` 等）。Skill 包内的 `scripts/` **不会**被解析或执行（目录会被跳过）。
+Executable capability comes **only from platform cloud tools** (`generate_image`, `search_web`, `memory_*`, and so on). A `scripts/` directory inside a Skill package is **not** parsed or executed (the directory is skipped).
 
 ---
 
-## 2. Skill 目录结构
+## 2. Skill directory layout
 
 ```
 my-skill/
-├── SKILL.md                 # 必须：frontmatter + 正文
-└── references/              # 可选：补充说明（渐进式披露第三层）
+├── SKILL.md                 # required: frontmatter + body
+└── references/              # optional: extra docs (progressive-disclosure layer 3)
     ├── stage_a.md
     └── templates/
         └── outline.md
 ```
 
-规则：
+Rules:
 
-| 规则 | 说明 |
+| Rule | Notes |
 |---|---|
-| 必须有 `SKILL.md` | 文件名大小写固定 |
-| `name` 建议与目录名一致 | kebab-case（小写字母/数字 + 连字符），如 `image-generation` |
-| 引用文件只收纯文本 | `.md` / `.yaml` / `.json` / `.txt` 等；图片/视频/zip 等二进制会被跳过 |
-| 跳过的目录 | `scripts/`、`__pycache__/`、`.` 开头的目录 |
-| 打包上传 | zip 根目录直接是 `SKILL.md`，或只有一层顶层子目录均可 |
+| `SKILL.md` is required | The filename casing is fixed |
+| `name` should match the directory name | kebab-case (lowercase letters/digits + hyphens), e.g. `image-generation` |
+| Reference files are plain text only | `.md` / `.yaml` / `.json` / `.txt`, and similar; binaries such as images, video, and zip are skipped |
+| Skipped directories | `scripts/`, `__pycache__/`, and directories whose names start with `.` |
+| Packaging for upload | The zip root may be `SKILL.md` directly, or a single top-level subdirectory |
 
-### 预设资产（preset_assets）
+### Preset assets (`preset_assets`)
 
-与 `listing.required_assets`（仅 UI 提示用户「需要自备什么」）不同：**预设资产**是 Skill 自带的参考图/视频/音频。媒体以公共 `assets` 行存储（`is_public=true`），Skill 清单同时保存引用与稳定的 `s3://` 地址：
+Unlike `listing.required_assets` (a UI hint that tells the user "bring your own"), **preset assets** are reference images, videos, or audio that ship with the Skill. Media is stored as public `assets` rows (`is_public=true`). The Skill manifest stores both the reference and a stable `s3://` URI:
 
 ```json
 [
   {
     "key": "brand_logo",
-    "label": "品牌 Logo",
+    "label": "Brand logo",
     "asset_id": "skpa_xxxx",
     "type": "image",
     "uri": "s3://bucket/path/logo.png",
@@ -100,12 +100,12 @@ my-skill/
 ]
 ```
 
-- zip **不**打包二进制；作者通过 HTTP API 上传/绑定，或在 skill-creator 对话里对用户附件调用 `bind_skill_preset_asset`。
-- 安装不拷贝：安装者按 `asset_id` / `uri` 解析使用；**不要**把会过期的 https 预签名写入清单。
-- 限额：`skills.preset_assets.max_count`（默认 10）；类型限 image / video / audio。
-- 运行时：`read_skill` 返回含 `uri`/`providers` 的 `preset_assets`；生成类工具的 `input_urls` / `image_url` 可传 **`uri`（s3://）、`asset_id` 或预设 `key`**，由平台预签名；skill_agent 也会把已挂载 Skill 的预设资产注入 context。
+- The zip does **not** bundle binaries. Authors upload or bind them through the HTTP API, or call `bind_skill_preset_asset` on a user attachment inside a skill-creator conversation.
+- Install does not copy the file. Installers resolve it by `asset_id` / `uri`. **Do not** write expiring https presigned URLs into the manifest.
+- Limit: `skills.preset_assets.max_count` (default 10). Types are limited to image / video / audio.
+- At runtime, `read_skill` returns `preset_assets` including `uri` and `providers`. Generation tools accept an **`uri` (`s3://`), `asset_id`, or preset `key`** in `input_urls` / `image_url`; the platform presigns it. skill_agent also injects preset assets of already-mounted Skills into context.
 
-导入本地目录示例：
+Example of importing a local directory:
 
 ```bash
 source .venv/bin/activate
@@ -118,13 +118,13 @@ asyncio.run(import_skills_from_directory('examples/skill_demo/skills'))
 
 ---
 
-## 3. SKILL.md 格式
+## 3. SKILL.md format
 
 ```markdown
 ---
 name: image-generation
-description: 用户想要生成、绘制或创作一张图片（插画、海报、头像、场景图等）时使用
-display_name: 图片生成          # 可选，UI 展示名
+description: Use when the user wants to generate, draw, or create an image (illustration, poster, avatar, scene, etc.)
+display_name: Image Generation   # optional, name shown in the UI
 allowed-tools:
   - list_models
   - generate_image
@@ -132,410 +132,406 @@ allowed-tools:
 
 # Image Generation
 
-## 何时使用
+## When to use
 ...
 
-## 步骤
+## Steps
 ...
 
-## 注意事项
+## Notes
 ...
 ```
 
-### Frontmatter 字段
+### Frontmatter fields
 
-| 字段 | 必填 | 说明 |
+| Field | Required | Notes |
 |---|---|---|
-| `name` | 是 | Skill 唯一标识；系统 prompt 索引与 `read_skill(name)` 使用同一字符串。建议 kebab-case（`[a-z0-9]+(-[a-z0-9]+)*`，如 `image-generation`），不用下划线/驼峰 |
-| `description` | 是 | **一句话触发条件**（见下）。只出现在第一层索引里 |
-| `allowed-tools` | 强烈建议 | 本 Skill 需要用到的平台工具白名单。也支持 `allowed_tools` 或逗号分隔字符串 |
-| `canvas` | 否 | 产物可见性控制：`model_control` / `hidden_tools` / `hidden_entity_types`（见第 6.2 节「隐藏中间产物」） |
-| `display_name` / `title` | 否 | 人类可读名称；不影响 LLM 调度 |
-| 其他字段 | 否 | 保留为 `metadata`（如 `version`、`license`），不参与运行逻辑 |
+| `name` | Yes | Unique Skill id. The system-prompt index and `read_skill(name)` use the same string. Prefer kebab-case (`[a-z0-9]+(-[a-z0-9]+)*`, e.g. `image-generation`). Do not use underscores or camelCase |
+| `description` | Yes | **A one-sentence trigger condition** (see below). It appears only in the layer-1 index |
+| `allowed-tools` | Strongly recommended | Allowlist of platform tools this Skill needs. `allowed_tools` or a comma-separated string also work |
+| `canvas` | No | Output visibility: `model_control` / `hidden_tools` / `hidden_entity_types` (see section 6.2, "Hiding intermediate outputs") |
+| `display_name` / `title` | No | Human-readable name. It does not affect LLM routing |
+| Other fields | No | Kept as `metadata` (e.g. `version`, `license`). They do not participate in runtime logic |
 
-`allowed-tools` 也可写成：`allowed-tools: search_web, generate_image`。
+`allowed-tools` may also be written as `allowed-tools: search_web, generate_image`.
 
-### 写好 description（最重要）
+### Writing a good description (most important)
 
-`description` 回答的是：**什么用户意图下应该启用本 Skill**，不是功能口号。
+`description` answers **under what user intent this Skill should activate**. It is not a feature slogan.
 
-好的写法：
+Good:
 
 ```yaml
-description: 用户想要生成、绘制或创作一张图片（插画、海报、头像、场景图等）时使用
+description: Use when the user wants to generate, draw, or create an image (illustration, poster, avatar, scene, etc.)
 ```
 
 ```yaml
-description: 用户想要制作短剧（从一句话创意到成片：编剧、角色/场景视觉、分镜图/视频、配音、合成）时使用；只想推进/修改其中某一环节时也使用本 skill
+description: Use when the user wants to make a short drama (from a one-line idea to a finished cut: writing, character/location visuals, storyboard images/video, voiceover, and compositing); also use this skill when they only want to advance or revise one of those stages
 ```
 
-坏的写法：
+Bad:
 
 ```yaml
-description: 一个强大的图片工具          # 太虚，模型无法判断何时 read
-description: 调用 generate_image         # 暴露实现细节，不是用户意图
-description: 短剧                         # 过短，漏掉「改某一环也适用」等边界
+description: A powerful image tool          # too vague; the model cannot tell when to read
+description: Calls generate_image            # exposes implementation details, not user intent
+description: Short drama                     # too short; misses boundaries such as "revising one stage also applies"
 ```
 
-技巧：用「用户想要…时使用」句式；把近义词/子场景写进括号；若局部修改也应触发，在 description 里明确写出来。
+Tip: use the sentence pattern "Use when the user wants…". Put synonyms and sub-scenarios in parentheses. If a partial edit should also trigger the Skill, say so explicitly in the description.
 
 ---
 
-## 4. 编写正文（body）
+## 4. Writing the body
 
-正文是模型在 `read_skill` 之后唯一的操作说明书。推荐结构：
+The body is the model's only operating manual after `read_skill`. Recommended structure:
 
 ```markdown
-# <可读标题>
+# <Readable title>
 
-一两句说明本 Skill 做什么，以及有无结构化状态（通常没有）。
+One or two sentences on what this Skill does, and whether it has structured state (usually it does not).
 
-## 何时使用
-- 触发场景列表（与 description 呼应，可更细）
+## When to use
+- Trigger scenarios (echo the description, but can be more specific)
 
-## 步骤
+## Steps
 1. …
-2. 调用 `tool_name`，参数约定：…
+2. Call `tool_name`, with these parameter conventions: …
 3. …
 
-## 注意事项
-- 失败/拒绝对策、不要编造 URL、内容政策等
+## Notes
+- What to do on failure or refusal, do not invent URLs, content policy, and so on
 ```
 
-### 正文写作原则（给 AI）
+### Body-writing principles (for the AI)
 
-1. **只写本 Skill 需要的行为**：不要复述系统级规则（function calling、不要 JSON 输出等），编排器已注入。
-2. **步骤可执行**：写清「先做什么 → 调哪个工具 → 传哪些关键参数 → 成功后如何回复用户」。
-3. **参数约定写进 Skill**：尤其是 `name`、`entity_type`、`orientation`、生成类工具的 **`model=<channel>`**、prompt 语言（中/英）等；工具 schema 有默认值，但业务约定以 Skill 为准。涉及媒体生成时优先写死 channel，不要写物理模型名（见第 6.3 节）。
-4. **不要假设 project state / operations**：没有 `characters` 集合可写；需要跨轮复用的内容用 Markdown 写在回复里，或引用画布上已有资产 URL。
-5. **产物会自动上画布**：最终回复用自然语言概括即可，**不要大段粘贴 URL**。
-6. **失败如实告知**：工具 `success=false` 时不要假装成功或编造资源链接。
-7. **内容政策**：暴力/色情等请求礼貌拒绝，不调用生成工具。
-8. **控制长度**：简单 Skill 控制在数百到一两千字；复杂流程拆到 `references/`。用户 Skill 正文默认上限约 `50000` 字符（见配置 `skills.user_authored.max_body_chars`）。注意 `read_skill`/`read_skill_file` 返回值回灌给模型时还会按 `orchestrator_config.tool_result_max_chars`（默认 `8000` 字符）截断——这是所有工具共用的全局默认，正文写到接近 `50000` 字符时默认会被截断。可在承载该 Skill 的 workflow `orchestrator_config` 里用 `tool_result_max_chars_overrides: {read_skill: 50000, read_skill_file: 50000}` 按工具名单独放大，不影响其它工具的截断上限。
+1. **Write only the behavior this Skill needs.** Do not restate system-level rules (function calling, do not output JSON, and so on). The orchestrator already injects those.
+2. **Steps must be executable.** Spell out "do this first → call this tool → pass these key parameters → how to reply to the user on success".
+3. **Put parameter conventions in the Skill.** Especially `name`, `entity_type`, `orientation`, **`model=<channel>`** for generation tools, and prompt language (Chinese/English). Tool schemas have defaults, but business conventions live in the Skill. For media generation, hardcode a channel. Do not write a physical model name (see section 6.3).
+4. **Do not assume project state or operations.** There is no `characters` collection to write. Content that must survive across turns goes in the reply as Markdown, or is referenced by an asset URL already on the canvas.
+5. **Outputs land on the canvas automatically.** Summarize the final reply in natural language. **Do not paste long blocks of URLs.**
+6. **Report failures honestly.** When a tool returns `success=false`, do not pretend it succeeded or invent a resource link.
+7. **Content policy.** Politely refuse requests for violence, sexual content, and similar material. Do not call generation tools.
+8. **Keep it short.** A simple Skill should stay in the range of a few hundred to one or two thousand words. Split complex workflows into `references/`. User Skill bodies default to a cap of about `50000` characters (config `skills.user_authored.max_body_chars`). `read_skill` / `read_skill_file` results are also truncated to `orchestrator_config.tool_result_max_chars` (default `8000` characters) before they are fed back to the model. That cap is the global default shared by every tool, so a body written close to `50000` characters is truncated by default. The workflow that hosts the Skill can raise it per tool with `tool_result_max_chars_overrides: {read_skill: 50000, read_skill_file: 50000}` without changing the cap for other tools.
 
-### 与「最终回复」相关的约定
+### Conventions for the final reply
 
-- 需要边说边做时：同一轮可以输出文字并附带工具调用（文字会立刻展示）。
-- 任务完成时：输出最终文字回复；若需推荐下一步，**同一轮**调用 `set_guidance`（见第 7 节），不要再调其他工具。
-- 多步任务：先 `write_todos` 列出步骤，推进时整表更新 `status`。
+- When you need to talk while working: the same turn can emit text plus tool calls (the text is shown immediately).
+- When the task is done: emit the final text reply. If you want to recommend a next step, call `set_guidance` in **the same turn** (see section 7). Do not call any other tool.
+- For multi-step tasks: call `write_todos` first to list the steps, and update the whole table's `status` as you advance.
 
 ---
 
-## 5. 多阶段 Skill 与 references/
+## 5. Multi-stage Skills and references/
 
-长流程（如短剧全链路）不要把所有细节塞进 `SKILL.md` 正文。正确模式：
+Do not pack every detail of a long workflow (for example a full short-drama pipeline) into the `SKILL.md` body. The right pattern:
 
-**正文**：阶段索引表 + 协作原则 + 何时读哪个文件  
-**references/\*.md**：每个阶段的详细步骤
+**Body:** a stage index table + collaboration principles + when to read which file  
+**`references/*.md`:** the detailed steps for each stage
 
-正文示例骨架（参考 `examples/drama_skills/SKILL.md`）：
+Body skeleton (see `examples/drama_skills/SKILL.md`):
 
 ```markdown
-## 制作阶段（references/）
+## Production stages (references/)
 
-每个阶段的详细步骤单独放在 `references/` 下。**不要一次性全读**：先判断当前阶段，只用 `read_skill_file` 读对应那一个文件。
+Detailed steps for each stage live under `references/`. **Do not read them all at once.** Decide the current stage first, then use `read_skill_file` to read only that one file.
 
-| 阶段 | 文件 | 用到的工具 | 什么时候读 |
+| Stage | File | Tools used | When to read |
 |---|---|---|---|
-| 一、编剧 | `references/scriptwriting.md` | 无 | 用户给创意/要改剧本 |
-| 二、视觉设计 | `references/visual_design.md` | `generate_image` | 需要角色/场景参考图 |
+| 1. Writing | `references/scriptwriting.md` | none | The user gives an idea or wants the script changed |
+| 2. Visual design | `references/visual_design.md` | `generate_image` | Character or location reference images are needed |
 | … | … | … | … |
 
-## 协作原则
+## Collaboration principles
 
-- 用户说「一键生成」：按表顺序连续推进；每完成一阶段同步进度，立刻读下一阶段，**不要在阶段之间询问确认**。
-- 用户只改某一环：只读对应文件，不要重做全流程。
-- 仅当用户明确说「先确认」「等我看看」时才停下。
-- 进入多阶段时先 `write_todos`；阶段边界停下或全流程完成时调用 `set_guidance`。
+- If the user says "generate it in one go": advance through the table in order. Sync progress after each stage, then immediately read the next stage. **Do not ask for confirmation between stages.**
+- If the user only wants one stage changed: read only that file. Do not redo the whole pipeline.
+- Stop only when the user explicitly says "confirm first" or "let me look".
+- Call `write_todos` when entering a multi-stage flow. Call `set_guidance` when you stop at a stage boundary or when the whole pipeline is done.
 ```
 
-引用文件内部同样用「何时使用 / 步骤 / 注意事项」结构，并写明本阶段工具参数（如 `entity_type='characters'`）。
+Inside a reference file, use the same "When to use / Steps / Notes" structure, and spell out this stage's tool parameters (for example `entity_type='characters'`).
 
-引用文件路径以相对 Skill 根目录为准（如 `references/visual_design.md`），必须与 `read_skill` 返回的 `reference_files` 列表一致。用户 Skill 默认最多约 `10` 个引用文件。
+Reference paths are relative to the Skill root (for example `references/visual_design.md`) and must match the `reference_files` list returned by `read_skill`. User Skills default to about `10` reference files at most.
 
 ---
 
-## 6. 平台工具清单与常用参数
+## 6. Platform tool catalog and common parameters
 
-Skill 只能声明并使用平台已注册的工具。用户自建 Skill 还受 **工具天花板** 约束（第 8 节）。
+A Skill can declare and use only tools the platform has registered. User-authored Skills are also constrained by the **tool ceiling** (section 8).
 
-### 6.1 常用工具一览
+### 6.1 Common tools
 
-| 工具 | 用途 | 典型参数 |
+| Tool | Purpose | Typical parameters |
 |---|---|---|
-| `list_models` | 查看可用生成模型 / channel（起草时的兜底核对） | `model_type`: `image` / `video` / `tts` / `asr` / `music` 等；**不能替代** channel 目录（见 6.3） |
-| `search_library` | 搜索资产库（公共库+个人库） | `keyword`；可选 `category`、`scope`（`all`/`personal`/`public`）、`limit`、`offset`；返回 `uri`+`providers`（无预签名 URL） |
-| `get_library_item` | 获取库条目详情（含媒体 s3 引用） | `item_id`（来自 `search_library`）；返回 `media[].uri`/`providers` |
-| `generate_image` | 文生图 / 图生图 | `prompt`；可选 `input_urls`、`orientation`、`resolution`、**`model`（写 channel，如 `t2i` / `i2i.hd`）**、`name`、`entity_type` |
-| `generate_video` | 文生视频 / 图生视频 / 参考生视频等 | `prompt`；`input_urls`（`ref2v` 模式下至少 1 张参考图，`t2v` 可留空）；`orientation`、`resolution`、`duration`、**`model`（写 channel，如 `i2v` / `ref2v` / `t2v`；留空默认 `ref2v`；具体模型名会被拒绝）**、`name`、`entity_type` |
-| `generate_tts` | 配音 | `text`；`voice_instruction`（`tts.design` 通道必填）或 `reference_audio_url`（`tts.clone` 通道必填）；可选 **`model`（写 channel，如 `tts.design` / `tts.clone`，模式完全由 channel 决定；留空按是否传了 `reference_audio_url` 自动选默认 channel）**、`name`、`entity_type` |
-| `generate_music` | 文生音乐 | `prompt`；可选 `lyrics`（歌词，留空则纯音乐/模型即兴）、**`model='music'`**、`model_type`、`output_format`、`name`、`entity_type` |
-| `mix_clips` | 多片段拼接混音，可选按 clip 烧录整句硬字幕 | `clips[]`（`video`/`videos` + `audio`/`audios`，可选 `subtitles`：`url`（.srt/.vtt/.ass）与 `items`（`text`/`start`/`end`，相对该 clip 输出起点）二选一，可选 `style`）；轨道 `url` 与 `subtitles.url` 支持 asset_id / `s3://` / 真实 https，会自动解析预签名；`name`、`entity_type`（对应 channel `clip-mixer`）；可选 `orientation`（画布占位方向，不影响合成结果，应与源片段方向一致，如竖屏短剧传 `portrait`） |
-| `caption_video` | 给一条成片加 TikTok / Reels 式逐词高亮字幕，返回新 MP4 | `video_url`（必填）；可选 `input_type`（`video` 默认 / `audio`）、`template`（默认 `hormozi`；优先 `mega-stroke` / `cloud-glow` / `sunset-panel` / `italic-heavy-stroke` / `ink-on-white`；访谈 `podcast-clean` 或 `soft-minimal`；新闻条 `lower-third`；未知 ID 会拒绝）、`size`（`sm`/`md`/`lg`）、`position`（`bottom`/`middle`/`top`）、`language`（默认 `auto`）、`dictionary`、`emoji_enabled`、`particles_enabled`、`custom_template`（白名单浅覆盖，禁止 `font_path`）、`name`、`entity_type`（默认 `final_videos`）。**不要传 `model`，不要传 `words`**（服务自己做 ASR）。不返回文稿；文稿用 `transcribe_audio`。不是 `mix_clips` 的整句字幕 |
-| `split_image` | 图片网格切割为瓦片 | `input_urls`；可选 `rows`、`cols`、`output_format`、`quality`、`border` |
-| `probe_media` | 探测视频/音频媒体信息（clip-mixer 服务，无 channel） | `url`（asset_id / `s3://` / https）；返回 `probe`：`duration`/`width`/`height`/`fps`/`video_codec`/`audio_codecs`/`has_video`/`has_audio`；交互型，不上画布 |
-| `extract_clip` | 按时间段剪切视频，每段输出 1 个独立视频（不拼接；clip-mixer 服务，无 channel） | `url`、`segments[]`（`{start, duration}` 或 `{start, end}`，二选一，至少 1 段）；可选 `accurate`（默认 `false`=流复制、切点对齐关键帧；`true`=重编码帧精确）、`output_format`（`mp4`/`mov`/`mkv`）、`name`、`entity_type`（默认 `video_clips`）、`orientation`（画布占位方向）；要拼接或重排这些片段时把产物 `asset_id` 交给 `mix_clips` |
-| `extract_frame` | 从视频提取一帧或多帧 jpg（clip-mixer 服务，无 channel） | `url`、`timestamps[]`（`0`=首帧；正数=距开头秒数；**负数=距结尾秒数**，`-1` 为结尾前 1 秒，非严格最后一帧；任一正数超出时长则整体失败）；可选 `width`、`name`、`entity_type`（默认 `extracted_frames`）；每个时间戳产出 1 个图片资产 |
-| `extract_audio` | 提取视频音轨 / 裁剪或转换音频（clip-mixer 服务，无 channel） | `url`（视频或音频）；可选 `segments[]`（每段输出 1 个**独立**文件，不拼接，`duration`/`end` 可省略到文件末尾；缺省=整条音轨 1 个文件）、`format`（`m4a` 默认/`mp3`/`wav`）、`name`、`entity_type`（默认 `extracted_audios`）；输入无音轨则失败 |
-| `recognize_image` | 识图 / 看图描述 | `image_url` 或 `image_base64`；可选 `prompt`、`media_type`、`model` |
-| `recognize_video` | 视频理解 / 描述 | `video_url`；可选 `prompt`、`model` |
-| `transcribe_audio` | 音频转写（含 SRT） | `audio_url`；可选 `cache`、**`model='asr'`** |
-| `search_web` | 网络搜索 | `query`；可选 `search_depth`、`max_results` |
-| `fetch_video_info` | 社媒视频元数据 | `url`（YouTube/TikTok/IG/FB/X/LinkedIn） |
-| `download_video` | 社媒视频临时下载链 | `url`；可选 `quality`、`format`（仅 YT/TikTok/IG） |
-| `create_document` | 新建一个 document 资产（与图片/视频/音频同级，进画布；总是新建，不会覆盖已有文档） | `content`；可选 `name`、`filename`、`content_type`（默认 `text/markdown`）、`entity_type` |
-| `update_document` | 对已有 document 资产原地更新（同一 asset_id，画布卡片原地刷新，不产生新资产） | `asset_id`、`content`（全量覆盖）；可选 `name`、`content_type`、`entity_type`（不传则沿用原文档） |
-| `get_document` | 按 asset_id 读取 document 资产正文 | `asset_id`（来自 `create_document` 或用户上传的文档） |
+| `list_models` | List available generation models / channels (a fallback check while drafting) | `model_type`: `image` / `video` / `tts` / `asr` / `music`, and similar. **Cannot replace** the channel catalog (see 6.3) |
+| `search_library` | Search the asset library (public + personal) | `keyword`; optional `category`, `scope` (`all`/`personal`/`public`), `limit`, `offset`. Returns `uri`+`providers` (no presigned URL) |
+| `get_library_item` | Get a library item's details (including media s3 references) | `item_id` (from `search_library`). Returns `media[].uri` / `providers` |
+| `generate_image` | Text-to-image / image-to-image | `prompt`; optional `input_urls`, `orientation`, `resolution`, **`model` (a channel, e.g. `t2i` / `i2i.hd`)**, `name`, `entity_type` |
+| `generate_video` | Text-to-video / image-to-video / reference-to-video, and similar | `prompt`; `input_urls` (at least 1 reference image in `ref2v` mode; may be empty for `t2v`); `orientation`, `resolution`, `duration`, **`model` (a channel such as `i2v` / `ref2v` / `t2v`; empty defaults to `ref2v`; concrete model names are rejected)**, `name`, `entity_type` |
+| `generate_tts` | Voiceover | `text`; `voice_instruction` (required on the `tts.design` channel) or `reference_audio_url` (required on the `tts.clone` channel); optional **`model` (a channel such as `tts.design` / `tts.clone`; the mode is fully determined by the channel; if omitted, the default channel is chosen from whether `reference_audio_url` was passed)**, `name`, `entity_type` |
+| `generate_music` | Text-to-music | `prompt`; optional `lyrics` (leave empty for instrumental music or model improvisation), **`model='music'`**, `model_type`, `output_format`, `name`, `entity_type` |
+| `mix_clips` | Concatenate and mix multiple clips; optionally burn whole-sentence hard subtitles per clip | `clips[]` (`video`/`videos` + `audio`/`audios`, optional `subtitles`: exactly one of `url` (.srt/.vtt/.ass) or `items` (`text`/`start`/`end`, relative to that clip's output start), optional `style`); track `url` and `subtitles.url` accept asset_id / `s3://` / real https and are presigned automatically; `name`, `entity_type` (channel `clip-mixer`); optional `orientation` (canvas placeholder orientation; does not affect the mix and should match the source clips, e.g. pass `portrait` for a vertical short drama) |
+| `caption_video` | Add TikTok / Reels-style word-by-word highlight captions to one finished video and return a new MP4 | `video_url` (required); optional `input_type` (`video` default / `audio`), `template` (default `hormozi`; prefer `mega-stroke` / `cloud-glow` / `sunset-panel` / `italic-heavy-stroke` / `ink-on-white`; interviews: `podcast-clean` or `soft-minimal`; news bars: `lower-third`; unknown IDs are rejected), `size` (`sm`/`md`/`lg`), `position` (`bottom`/`middle`/`top`), `language` (default `auto`), `dictionary`, `emoji_enabled`, `particles_enabled`, `custom_template` (allowlisted shallow overrides; `font_path` is forbidden), `orientation` (canvas placeholder orientation; does not affect burn-in and should match the source), `name`, `entity_type` (default `final_videos`). **Do not pass `model`. Do not pass `words`** (the service runs ASR itself). Does not return a transcript; use `transcribe_audio` for a transcript. This is not the whole-sentence subtitles of `mix_clips` |
+| `split_image` | Cut an image grid into tiles | `input_urls`; optional `rows`, `cols`, `output_format`, `quality`, `border` |
+| `probe_media` | Probe video/audio media info (clip-mixer service, no channel) | `url` (asset_id / `s3://` / https). Returns `probe`: `duration`/`width`/`height`/`fps`/`video_codec`/`audio_codecs`/`has_video`/`has_audio`. Interactive; not added to the canvas |
+| `extract_clip` | Cut a video by time range; each segment is one independent video (not concatenated; clip-mixer service, no channel) | `url`, `segments[]` (either `{start, duration}` or `{start, end}`, at least 1 segment); optional `accurate` (default `false` = stream copy, cut points snap to keyframes; `true` = re-encode for frame accuracy), `output_format` (`mp4`/`mov`/`mkv`), `name`, `entity_type` (default `video_clips`), `orientation` (canvas placeholder orientation). To concatenate or reorder these clips, pass the resulting `asset_id`s to `mix_clips` |
+| `extract_frame` | Extract one or more jpg frames from a video (clip-mixer service, no channel) | `url`, `timestamps[]` (`0` = first frame; a positive number = seconds from the start; **a negative number = seconds before the end**, so `-1` is 1 second before the end, not the strict last frame; any positive timestamp past the duration fails the whole call); optional `width`, `name`, `entity_type` (default `extracted_frames`). Each timestamp produces 1 image asset |
+| `extract_audio` | Extract a video audio track, or trim/convert audio (clip-mixer service, no channel) | `url` (video or audio); optional `segments[]` (each segment is one **independent** file, not concatenated; `duration`/`end` may be omitted to run to the end of the file; omitted = one file for the whole track), `format` (`m4a` default / `mp3` / `wav`), `name`, `entity_type` (default `extracted_audios`). Fails if the input has no audio track |
+| `recognize_image` | Read an image / describe what is in it | `image_url` or `image_base64`; optional `prompt`, `media_type`, `model` |
+| `recognize_video` | Understand / describe a video | `video_url`; optional `prompt`, `model` |
+| `transcribe_audio` | Transcribe audio (including SRT) | `audio_url`; optional `cache`, **`model='asr'`** |
+| `search_web` | Web search | `query`; optional `search_depth`, `max_results` |
+| `fetch_video_info` | Social-video metadata | `url` (YouTube/TikTok/IG/FB/X/LinkedIn) |
+| `download_video` | Temporary download link for a social video | `url`; optional `quality`, `format` (YouTube/TikTok/IG only) |
+| `create_document` | Create a new document asset (same level as image/video/audio, added to the canvas; always creates a new document and never overwrites an existing one) | `content`; optional `name`, `filename`, `content_type` (default `text/markdown`), `entity_type` |
+| `update_document` | Update an existing document asset in place (same asset_id; the canvas card refreshes in place and no new asset is created) | `asset_id`, `content` (full replacement); optional `name`, `content_type`, `entity_type` (if omitted, the original document's values are kept) |
+| `get_document` | Read a document asset's body by asset_id | `asset_id` (from `create_document` or a document the user uploaded) |
 
-生成类 / 处理类产物工具（`generate_*`、`split_image`、`mix_clips`、`caption_video`、`extract_clip`、`extract_frame`、`extract_audio`、`create_document`、`update_document`）成功后，资产会进入画布（若 workflow `add_to_canvas: true`）。`probe_media` / `recognize_image` / `recognize_video` / `transcribe_audio` / `fetch_video_info` / `download_video` / `get_document` / `search_web` / `search_library` / `get_library_item` 为交互型结果，不上画布。
+Asset-producing and processing tools (`generate_*`, `split_image`, `mix_clips`, `caption_video`, `extract_clip`, `extract_frame`, `extract_audio`, `create_document`, `update_document`) add the asset to the canvas on success (when the workflow has `add_to_canvas: true`). `probe_media` / `recognize_image` / `recognize_video` / `transcribe_audio` / `fetch_video_info` / `download_video` / `get_document` / `search_web` / `search_library` / `get_library_item` return interactive results and are not added to the canvas.
 
-**资产库用法（`search_library` → `get_library_item` → 生成工具）**：先用 `search_library` 按关键字/类别/范围检索公共库或个人库（返回紧凑的 `uri`+`providers`，无预签名 URL），再用 `get_library_item(item_id=...)` 拿到 `media[].uri` / `providers`，写入项目资产或作为 `generate_image(input_urls=[uri])`、`generate_video`、`recognize_image` 的输入（传 s3://，系统执行前自动预签名）。
+**Asset-library usage (`search_library` → `get_library_item` → a generation tool):** search the public or personal library with `search_library` by keyword, category, and scope (the result is a compact `uri`+`providers`, with no presigned URL). Then call `get_library_item(item_id=...)` to get `media[].uri` / `providers`, write them into project assets, or pass them as input to `generate_image(input_urls=[uri])`, `generate_video`, or `recognize_image` (pass `s3://`; the system presigns before execution).
 
-### 6.2 画布资产约定（强烈建议在 Skill 中写明）
+### 6.2 Canvas asset conventions (strongly recommended in the Skill)
 
-调用 `generate_image` / `generate_video` / `generate_tts` / `generate_music` / `mix_clips` / `caption_video` / `extract_clip` / `extract_frame` / `extract_audio` / `create_document` / `update_document` 等产物工具时：
+When calling asset-producing tools such as `generate_image` / `generate_video` / `generate_tts` / `generate_music` / `mix_clips` / `caption_video` / `extract_clip` / `extract_frame` / `extract_audio` / `create_document` / `update_document`:
 
-- 传简短 **`name`**（角色名、镜头标题、成片名、曲名、文档标题等），便于画布展示。
-- 传约定的 **`entity_type`**（未传时默认为 `skill_generation`）。常见取值：
-  - 图片：`characters` / `locations` / `props` / `storyboard_images`
-  - 视频：`storyboard_videos` / `final_videos`（`caption_video` 未传时默认 `final_videos`）
-  - 音频：按业务自定（如 `voiceovers` / `music`）
-  - 文档：按业务自定（如 `scripts` / `reports`）
-- **不要**让模型传 `group_id` / `index`（若系统有自动分配逻辑，由平台处理）。
-- `download_video` 返回的 `downloadUrl` **有时效**，需在 `expiresIn` 内使用。
-- `create_document` / `update_document` 产出的 document 资产存储模型与用户上传文档一致：S3 存原文，`document_contents` 存纯文本供 `get_document` / 上下文注入读取（不回源读 S3）。`create_document` 每次调用都会新建一个 asset_id + 新画布卡片；`update_document` 是 PUT 语义，按传入的既有 `asset_id` 原地刷新同一张卡片，不产生新卡片——修改已有文档用 `update_document`，新建文档用 `create_document`。两者的 `content` 都有长度上限（默认 `200000` 字符，见配置 `plugins/documents/config.yaml` 的 `create_document.max_content_chars` / `update_document.max_content_chars`），超限会返回 `success: false`，需要更大内容时应拆分为多个文档。
+- Pass a short **`name`** (character name, shot title, final-cut title, track title, document title, and so on) so the canvas can display it.
+- Pass an agreed **`entity_type`** (defaults to `skill_generation` when omitted). Common values:
+  - Images: `characters` / `locations` / `props` / `storyboard_images`
+  - Video: `storyboard_videos` / `final_videos` (`caption_video` defaults to `final_videos` when omitted)
+  - Audio: defined by the business (e.g. `voiceovers` / `music`)
+  - Documents: defined by the business (e.g. `scripts` / `reports`)
+- **Do not** have the model pass `group_id` / `index` (if the system auto-assigns them, the platform handles it).
+- The `downloadUrl` returned by `download_video` **expires**. Use it within `expiresIn`.
+- Document assets from `create_document` / `update_document` use the same storage model as user-uploaded documents: the original file is stored in S3, and `document_contents` stores plain text for `get_document` and context injection (S3 is not read back). Every `create_document` call creates a new asset_id and a new canvas card. `update_document` is PUT semantics: it refreshes the same card in place for the given existing `asset_id` and does not create a new card. Use `update_document` to edit an existing document and `create_document` to create one. Both `content` fields have a length cap (default `200000` characters; see `create_document.max_content_chars` / `update_document.max_content_chars` in `plugins/documents/config.yaml`). Over the cap, the tool returns `success: false`. Split larger content into multiple documents.
 
-#### 隐藏中间产物（frontmatter `canvas:`）
+#### Hiding intermediate outputs (frontmatter `canvas:`)
 
-产物默认上画布并在对话里出现资产卡片。若流程中有不希望用户看到的中间产物（待切割的网格图、待混剪的片段等），在 frontmatter 声明 `canvas:` 段：
+Outputs are added to the canvas by default and appear as asset cards in the conversation. If the flow has intermediate outputs the user should not see (a grid image waiting to be cut, clips waiting to be mixed, and so on), declare a `canvas:` block in the frontmatter:
 
 ```yaml
 ---
 name: my-skill
 description: ...
 canvas:
-  model_control: true                       # 允许模型逐次调用决定是否展示
-  hidden_tools: [split_image]               # 该工具产物一律不展示
-  hidden_entity_types: [work_in_progress]   # 该 entity_type 产物一律不展示
+  model_control: true                       # let the model decide visibility per call
+  hidden_tools: [split_image]               # outputs of this tool are never shown
+  hidden_entity_types: [work_in_progress]   # outputs of this entity_type are never shown
 ---
 ```
 
-- 三个字段均可选。只写 `hidden_*`：纯规则式，模型无感知；只写 `model_control: true`：完全交给模型按正文约定逐次决定；两者可同时用（模型未显式传时回落到 `hidden_*` 规则）。
-- `model_control: true` 时，产物类工具会多出一个可选参数 **`add_to_canvas`（默认 true）**。正文里要写死哪一步传 `false`，例如：「生成待切割的网格图时调用 `generate_image` 传 `add_to_canvas=false`；切割结果（瓦片）正常展示」。
-- 隐藏语义：不发画布/对话资产卡片，并把资产加入 canvas hidden_ids。**产物照常计费、照常进资产库，URL 仍可作为后续工具的输入**——隐藏只影响展示。
-- 规则按「本轮已挂载的所有 Skill 取并集」生效：一个 Skill 声明隐藏某 `entity_type`，同轮其他 Skill 用同名 `entity_type` 的产物也会被隐藏。约定 entity_type 命名时注意区分。
-- workflow 级 `add_to_canvas: false`（orchestrator_config）仍是总开关，优先级高于以上一切。
+- All three fields are optional. `hidden_*` alone is rule-based and invisible to the model. `model_control: true` alone leaves every call to the model, following the body's conventions. Both may be used together (when the model does not pass an explicit value, the `hidden_*` rules apply).
+- When `model_control: true`, asset-producing tools gain an optional parameter **`add_to_canvas` (default true)**. The body must hardcode which step passes `false`, for example: "when generating the grid image that will be cut, call `generate_image` with `add_to_canvas=false`; show the cut results (tiles) normally".
+- Hide semantics: do not emit canvas or conversation asset cards, and add the asset to canvas `hidden_ids`. **The output is still billed and still enters the asset library. Its URL can still be used as input to later tools.** Hiding only affects display.
+- Rules apply as the **union of every Skill mounted for the current turn**: if one Skill hides an `entity_type`, outputs of that same `entity_type` from other Skills in the turn are hidden too. Choose `entity_type` names with that in mind.
+- A workflow-level `add_to_canvas: false` (in `orchestrator_config`) is still the master switch and outranks everything above.
 
-### 6.3 生成 channel 选型（优先使用）
+### 6.3 Choosing a generation channel (preferred)
 
-平台为图片 / 视频 / 配音 / 音乐等生成能力引入了稳定的 **model channel**。Skill 作者在正文里应把生成工具的 `model=` **写成 channel**（可选带 variant 后缀），**不要**硬编码物理模型名（如 `rm3.1-G`、`qwen-image`）。模型升级时，运营侧通过 channel binding 切换底层模型，Skill 无需重新发布。
+The platform exposes stable **model channels** for image, video, voice, music, and similar generation. In the body, Skill authors should set a generation tool's `model=` to a **channel** (optionally with a variant suffix). **Do not** hardcode a physical model name (such as `rm3.1-G` or `qwen-image`). When a model is upgraded, operations switches the underlying model through the channel binding, and the Skill does not need to be republished.
 
-> 权威目录：`examples/skill_creator/skills/skill-creator/references/available-models.md`（skill-creator 运行时用 `read_skill_file` 读取）。起草时以该表为准；`list_models` 只作兜底核对，不能替代目录、更不能凭记忆发明 channel。
+> Authoritative catalog: `examples/skill_creator/skills/skill-creator/references/available-models.md` (skill-creator reads it at runtime with `read_skill_file`). Use that table while drafting. `list_models` is only a fallback check. It cannot replace the catalog, and it is not a license to invent a channel from memory.
 
-**概念**：
+**Concepts:**
 
-- **channel**：稳定模态 ID，如 `t2i`、`i2v`、`ref2v`、`tts.design`。Skill 正文写 channel。
-- **variant 后缀**：选择带 tag 的 binding，如 `t2i.hd`、`i2i.hd.lite`（可组合；最长前缀 channel 匹配优先）。
-- **裸 channel**（如 `i2v`）：走当前 **default** binding。
-- **物理模型名**：仍可解析（兼容旧 Skill），但 **新 Skill 禁止再写**。
+- **channel:** a stable modality id, such as `t2i`, `i2v`, `ref2v`, `tts.design`. The Skill body writes the channel.
+- **variant suffix:** selects a tagged binding, such as `t2i.hd` or `i2i.hd.lite` (suffixes can be combined; the longest prefix channel match wins).
+- **bare channel** (such as `i2v`): uses the current **default** binding.
+- **physical model name:** still resolves (for old Skills), but **new Skills must not write one**.
 
-**常用 channel 速查**（完整说明与约束见 `available-models.md`）：
+**Common channels** (full notes and constraints are in `available-models.md`):
 
-| Channel / Variant | 工具 | 模态 / 何时用 |
+| Channel / variant | Tool | Modality / when to use |
 |---|---|---|
-| `t2i` / `t2i.hd` / `t2i.hd.lite` | `generate_image` | 文生图；`.hd*` 更高质量且**不支持 NSFW** |
-| `i2i` / `i2i.hd` / `i2i.hd.lite` | `generate_image` | 图生图（有参考图）；网格分镜优先 `.hd` / `.hd.lite`；`.hd*` **不支持 NSFW** |
-| `i2v` | `generate_video` | 图生视频（**视频生成不支持 NSFW/成人内容，无任何 channel 例外**） |
-| `fl2v` | `generate_video` | 首尾帧生视频（`input_urls` 为首帧+尾帧） |
-| `ai2v` | `generate_video` | 图 + 音频驱动生视频 |
-| `t2v` | `generate_video` | 通用文生/图生视频；显式传 `model='t2v'` 时 `input_urls` 可留空（纯文生视频） |
-| `ref2v` | `generate_video` | 参考生视频（保角色一致性）；模态由 channel 直接决定，**无需**再传 `gen_mode`；至少 1 张参考图；可选 `audio_url`、`orientation`；**`model` 缺省时的默认 channel** |
-| `clip-mixer` | `mix_clips` | 多片段拼接混音，可选按 clip 烧录整句硬字幕（合成通道，非生成模型） |
-| `caption` | `caption_video` | 逐词高亮字幕。**Skill 不要传 `model`**：工具没有该参数，平台内部走 channel `caption`。写法见 6.4 |
-| `tts.design` / `tts.clone` | `generate_tts` | 模态由 channel 直接决定，**无需**再传 `mode`：`tts.design` 声音设计（需 `voice_instruction`）/ `tts.clone` 声音克隆（需 `reference_audio_url`） |
-| `music` | `generate_music` | 文生音乐 |
-| `asr` | `transcribe_audio` | 语音转写 |
+| `t2i` / `t2i.hd` / `t2i.hd.lite` | `generate_image` | Text-to-image. `.hd*` is higher quality and **does not support NSFW** |
+| `i2i` / `i2i.hd` / `i2i.hd.lite` | `generate_image` | Image-to-image (a reference image is present). Prefer `.hd` / `.hd.lite` for grid storyboards. `.hd*` **does not support NSFW** |
+| `i2v` | `generate_video` | Image-to-video (**video generation does not support NSFW/adult content, with no channel exception**) |
+| `fl2v` | `generate_video` | First-and-last-frame to video (`input_urls` is the first frame plus the last frame) |
+| `ai2v` | `generate_video` | Image + audio-driven video |
+| `t2v` | `generate_video` | General text-to-video / image-to-video. When `model='t2v'` is passed explicitly, `input_urls` may be empty (pure text-to-video) |
+| `ref2v` | `generate_video` | Reference-to-video (keeps character consistency). The modality is decided by the channel directly; **do not** also pass `gen_mode`. At least 1 reference image. Optional `audio_url` and `orientation`. **The default channel when `model` is omitted** |
+| `clip-mixer` | `mix_clips` | Concatenate and mix multiple clips, optionally burning whole-sentence hard subtitles per clip (a compositing channel, not a generation model) |
+| `caption` | `caption_video` | Word-by-word highlight captions. **Skills must not pass `model`:** the tool has no such parameter; the platform uses channel `caption` internally. See 6.4 for how to write the call |
+| `tts.design` / `tts.clone` | `generate_tts` | The modality is decided by the channel directly; **do not** also pass `mode`. `tts.design` is voice design (needs `voice_instruction`); `tts.clone` is voice clone (needs `reference_audio_url`) |
+| `music` | `generate_music` | Text-to-music |
+| `asr` | `transcribe_audio` | Speech transcription |
 
-**选型规则（写进 Skill 正文时）**：
+**Selection rules (when writing them into a Skill body):**
 
-1. 先按用户意图确定模态（文生图 / 图生图 / 图生视频 / 首尾帧 / 音频驱动 / 参考生视频 / Director / 配音 / 音乐 / 拼接 / 逐词高亮字幕）。
-2. 选定工具后，在步骤里**硬编码** `model=<channel>`（及必要的输入约定：`input_urls`、`mode`、`audio_url`、`voice_instruction` 等）。需要 tagged binding 时用后缀（如 `model='t2i.hd'`）。
-3. 图生视频：统一用 `i2v`——视频生成不支持 NSFW/成人内容，没有对应的 tagged 变体。
-4. 参考生视频：传 `model='ref2v'` 即可（模态完全由 channel 决定，**不需要**再传 `gen_mode`）；至少 1 张参考图。若还需音频驱动，另传 `audio_url`（可选 `audio_start_time`），不要把音频 URL 塞进 `input_urls`。
-5. **禁止**在新 Skill 里写物理模型名——`generate_video` 会直接拒绝具体模型名（报错并提示改用 channel）；不要依赖下游 `list_models` 去猜 channel。
+1. Decide the modality from the user's intent (text-to-image / image-to-image / image-to-video / first-and-last-frame / audio-driven / reference-to-video / Director / voiceover / music / concatenation / word-by-word highlight captions).
+2. After choosing the tool, **hardcode** `model=<channel>` in the step, plus the required input conventions (`input_urls`, `mode`, `audio_url`, `voice_instruction`, and so on). Use a suffix when a tagged binding is needed (for example `model='t2i.hd'`).
+3. Image-to-video: always use `i2v`. Video generation does not support NSFW/adult content, and there is no tagged variant for it.
+4. Reference-to-video: pass `model='ref2v'` (the modality is fully determined by the channel; **do not** also pass `gen_mode`). At least 1 reference image. If audio drive is also needed, pass `audio_url` separately (optional `audio_start_time`). Do not put the audio URL in `input_urls`.
+5. **Do not** write a physical model name in a new Skill. `generate_video` rejects concrete model names outright (the error tells you to use a channel). Do not rely on a downstream `list_models` call to guess the channel.
 
-正文示例：
-
-```markdown
-- 文生图：`generate_image(prompt=..., model='t2i', name=..., entity_type='storyboard_images')`
-- 图生视频（常规）：`generate_video(prompt=..., input_urls=[静帧], model='i2v', ...)`
-- 参考生视频：`generate_video(..., model='ref2v', orientation='portrait')`
-```
-
-> 注意：此处的 channel（`model='i2v'` 等）是**生成工具**的参数，与 LLM 本身用哪个模型无关——Skill 已不支持声明对话 LLM 档位。
-
-### 6.4 参数写作提示
-
-在 Skill 正文或 references 里用「必须 / 可选 / 默认」写清业务默认值，例如：
+Body examples:
 
 ```markdown
-- 短剧默认 `orientation='portrait'`，除非用户明确要求横屏；分辨率无特殊要求时不传 `resolution`（走默认 `720P`）。
-- 图片/视频 prompt 使用英文；对白文本保持用户语言。
-- 图生视频：分镜静帧 URL 放入 `input_urls`（第 1 张为首帧）；`model='i2v'`（视频生成不支持 NSFW/成人内容）。
-- `mix_clips` 的 `clips[].video(s)/audio(s).url` 以及 `clips[].subtitles.url` 优先传本对话已生成资产的 asset_id（也支持 `s3://`/真实 https），禁止编造不存在的引用。字幕是整句硬字幕（烧进画面）；`subtitles.url` 与 `subtitles.items` 二选一，时间轴相对该 clip 输出起点。中文建议 `style.font_name='Noto Sans CJK SC'`。
-- 逐词高亮（TikTok / Reels 那种逐词变色）用 `caption_video`，不要用 `mix_clips` 的 `subtitles`，也不要把 `transcribe_audio` 的 SRT 塞进 `words`。调用时不传 `model`、不传 `words`；正文里写死一个已知 `template`（默认 `hormozi`，优先 Top5：`mega-stroke`、`cloud-glow`、`sunset-panel`、`italic-heavy-stroke`、`ink-on-white`）。成功只返回新 MP4，不返回词级时间轴。这一步可能要十几到二十多分钟，正文不要写成即时完成、也不要让模型轮询。
+- Text-to-image: `generate_image(prompt=..., model='t2i', name=..., entity_type='storyboard_images')`
+- Image-to-video (standard): `generate_video(prompt=..., input_urls=[still], model='i2v', ...)`
+- Reference-to-video: `generate_video(..., model='ref2v', orientation='portrait')`
 ```
 
-不要在 Skill 里复制整份工具 JSON Schema；只写本业务关心的字段与取值约定即可。模型侧仍能看到工具的 function calling schema。
+> The channel here (`model='i2v'` and similar) is a parameter of the **generation tool**. It has nothing to do with which model the conversation LLM itself uses. Skills can no longer declare a conversation LLM tier.
 
-> **尺寸参数：`orientation` + `resolution`（唯二暴露的尺寸参数）**：`generate_image` / `generate_video` 只接受两个尺寸相关枚举，不支持自由像素 `width`/`height`：
-> - `orientation`：`landscape`（横屏 16:9）/ `portrait`（竖屏 9:16）/ `square`（方形 1:1，仅 `generate_image` 及部分视频模型支持，不支持的模型会自动归为横屏）
-> - `resolution`：`480P` / `720P`（默认）/ `1080P` / `2K` / `4K`；具体模型的实际上限可能更低，超出会自动降到该模型支持的最高档位
->
-> Skill 正文只需按业务约定 `orientation`（和必要时的 `resolution`），不要在正文里编造像素尺寸或旧的 `'1K'/'2K'/'4K'` 三档写法（图片已统一为上面的五档）。`resolution_model`（宽高比字符串，如 `'9:16'`）是历史遗留的高级覆盖参数，仅 `generate_video` 的 `ref2v` 等少数 channel 仍支持透传，新 Skill 优先用 `orientation` 表达方向。
->
-> **精确比例覆盖：`aspect_ratio`（不常用，仅用户明确要求时才传）**：`orientation` 只覆盖三大类比例（16:9/9:16/1:1），若用户明确要求 `3:4`/`4:3` 等非标准比例，可传 `aspect_ratio='3:4'`（覆盖 `orientation`，其余仍按 `resolution` 档位对齐短边）。这是高级 escape hatch，绝大多数场景不需要传；Skill 正文不要把它当默认参数写死。
+### 6.4 Parameter-writing tips
 
-> **参数边界（平台钳制）**：`resolution` / `duration` 存在平台上限（`max_resolution` 面积上限、`max_duration` 时长上限；按模型/channel 云端配置 + 全局兜底），`batch_size` 锁死为 1（不开放单次多张生成）。Skill 正文**不要**写死超长时长或大于 1 的批量数——越界参数（含超出模型能力的 `resolution`）在工具执行前会被自动钳制/降档，并在工具返回的 `param_adjustments` 字段中说明。未指定 `orientation`/`resolution` 时，走云端 channel 配置或平台默认档位（`landscape` + `720P`）。
+In the Skill body or in references, state business defaults as "required / optional / default". For example:
+
+```markdown
+- Short dramas default to `orientation='portrait'` unless the user explicitly asks for landscape. Omit `resolution` when there is no special requirement (the default `720P` is used).
+- Write image and video prompts in English. Keep dialogue in the user's language.
+- Image-to-video: put the storyboard still URL in `input_urls` (the first image is the first frame). `model='i2v'` (video generation does not support NSFW/adult content).
+- For `mix_clips`, prefer an asset_id of an asset already generated in this conversation for `clips[].video(s)/audio(s).url` and `clips[].subtitles.url` (`s3://` and real https also work). Do not invent a reference that does not exist. Subtitles are whole-sentence hard subtitles burned into the picture. Use exactly one of `subtitles.url` and `subtitles.items`. Timestamps are relative to that clip's output start. For Chinese, use `style.font_name='Noto Sans CJK SC'`.
+- Word-by-word highlight (the TikTok / Reels style where each word changes color) uses `caption_video`. Do not use `mix_clips` `subtitles`, and do not stuff an SRT from `transcribe_audio` into `words`. Do not pass `model` or `words`. Hardcode a known `template` in the body (default `hormozi`; prefer the top 5: `mega-stroke`, `cloud-glow`, `sunset-panel`, `italic-heavy-stroke`, `ink-on-white`). Success returns only the new MP4, not word-level timing. This step can take from the teens of minutes up to more than twenty. Do not write the body as if it finishes instantly, and do not have the model poll.
+```
+
+Do not copy an entire tool JSON Schema into the Skill. Write only the fields and value conventions this business cares about. The model can still see the tool's function-calling schema.
+
+> **Size parameters: `orientation` + `resolution` (the only two exposed size parameters).** `generate_image` / `generate_video` accept only these two size-related enums. They do not accept free-form pixel `width` / `height`:
+> - `orientation`: `landscape` (16:9) / `portrait` (9:16) / `square` (1:1; supported only by `generate_image` and some video models; unsupported models fall back to landscape)
+> - `resolution`: `480P` / `720P` (default) / `1080P` / `2K` / `4K`. A given model's real ceiling may be lower; a value above it is dropped to the highest tier that model supports
+>
+> The Skill body only needs to set `orientation` for the business (and `resolution` when needed). Do not invent pixel sizes in the body, and do not use the old three-tier `'1K'` / `'2K'` / `'4K'` spelling (images now use the five tiers above). `resolution_model` (an aspect-ratio string such as `'9:16'`) is a legacy advanced override. Only a few `generate_video` channels, such as `ref2v`, still pass it through. New Skills should express direction with `orientation`.
+>
+> **Exact-ratio override: `aspect_ratio` (uncommon; pass it only when the user explicitly asks).** `orientation` covers only the three main ratios (16:9 / 9:16 / 1:1). If the user explicitly asks for a nonstandard ratio such as `3:4` or `4:3`, you may pass `aspect_ratio='3:4'` (it overrides `orientation`; everything else still aligns the short side to the `resolution` tier). This is an advanced escape hatch. Most cases do not need it. Do not hardcode it as a default parameter in the Skill body.
+
+> **Parameter bounds (platform clamping).** `resolution` and `duration` have platform ceilings (`max_resolution` is an area ceiling, `max_duration` is a duration ceiling; per-model/channel cloud config plus a global fallback). `batch_size` is locked to 1 (generating multiple images in one call is not available). The Skill body **must not** hardcode an over-long duration or a batch size greater than 1. Out-of-range parameters (including a `resolution` beyond the model's capability) are clamped or stepped down automatically before the tool runs, and the tool result explains that in `param_adjustments`. When `orientation` / `resolution` are omitted, the cloud channel config or the platform default tier is used (`landscape` + `720P`).
 
 ---
 
-## 7. 常驻工具
+## 7. Always-available tools
 
-`read_skill` / `read_skill_file` / `write_todos` / `set_guidance` **不必**写进 `allowed-tools`（写了也无妨）；编排器会始终注入（`set_guidance` 取决于 `suggested_questions`）。**例外**：7.4 节的 `memory_*` / `skill_kb_query` 不在此列，必须由 Skill 显式在 `allowed-tools` 中声明才可用，见该节说明。
+`read_skill` / `read_skill_file` / `write_todos` / `set_guidance` do **not** need to be listed in `allowed-tools` (listing them is harmless). The orchestrator always injects them (`set_guidance` depends on `suggested_questions`). **Exception:** the `memory_*` / `skill_kb_query` tools in section 7.4 are not in this set. A Skill must declare them explicitly in `allowed-tools` before they can be used. See that section.
 
 ### 7.1 `read_skill` / `read_skill_file`
 
-- 相关时先 `read_skill(name)`，再按正文行动。
-- 正文提到 `reference_files` 且需要细节时，再 `read_skill_file(name, path)`。
-- **不要**在未读 Skill 的情况下猜测其步骤。
+- When a Skill is relevant, call `read_skill(name)` first, then follow the body.
+- When the body mentions `reference_files` and you need the detail, then call `read_skill_file(name, path)`.
+- **Do not** guess a Skill's steps before reading it.
 
-### 7.2 `write_todos`（多步进度）
+### 7.2 `write_todos` (multi-step progress)
 
-整表替换（不是 merge），对齐 TodoWrite 契约：
+Replaces the whole table (it is not a merge). It follows the TodoWrite contract:
 
 ```json
 {
   "todos": [
-    {"id": "script", "content": "编剧", "status": "in_progress"},
-    {"id": "visual", "content": "视觉设计", "status": "pending"},
-    {"id": "storyboard", "content": "分镜图", "status": "pending"}
+    {"id": "script", "content": "Write the script", "status": "in_progress"},
+    {"id": "visual", "content": "Visual design", "status": "pending"},
+    {"id": "storyboard", "content": "Storyboard images", "status": "pending"}
   ]
 }
 ```
 
-规则：
+Rules:
 
-- 每项：`content` 必填；`status` 为 `pending` | `in_progress` | `completed`；`id` 可选。
-- **同时最多一条 `in_progress`**。
-- 推进时再次调用并传入**完整列表**。
-- 简单问答不必调用；空数组表示清空进度条。
-- 最多 20 条。
+- Each item: `content` is required; `status` is `pending` | `in_progress` | `completed`; `id` is optional.
+- **At most one item may be `in_progress` at a time.**
+- When advancing, call again and pass the **full list**.
+- Simple Q&A does not need a call. An empty array clears the progress bar.
+- At most 20 items.
 
-在多阶段 Skill 的「协作原则」里明确要求模型使用本工具。
+In a multi-stage Skill's "collaboration principles", explicitly require the model to use this tool.
 
-### 7.3 `set_guidance`（推荐操作按钮）
+### 7.3 `set_guidance` (recommended-action buttons)
 
-在输出**最终回复文字的同一轮**调用，给出下一步操作：
+Call it in the **same turn as the final reply text**, and offer the next actions:
 
 ```json
 {
   "suggested_questions": [
-    {"text": "开始设计角色/场景视觉"},
-    {"text": "再调整一下这场戏"}
+    {"text": "Start designing character and location visuals"},
+    {"text": "Revise this scene"}
   ]
 }
 ```
 
-也可用裸字符串（等价于 `{"text": "..."}`）。**条数不做产品层面的强制规定**——
-工具本身只做纯工程安全兜底截断（防止异常输出打爆前端渲染），不代表条数上限
-是产品规则；按当前场景给出合适数量即可，不必凑数或硬塞满某个数字，避免同质化
-选项。
+A bare string is also valid (equivalent to `{"text": "..."}`). **There is no product-level rule for how many items to return.** The tool only applies an engineering safety truncation so a runaway output cannot blow up the client render. That truncation is not a product cap. Return a sensible count for the current situation. Do not pad the list or force it up to some number, and avoid near-duplicate options.
 
-完整对象可含（客户端已支持以下全部字段）：
+A full object may include the following (the client already supports every field):
 
-| 字段 | 类型 | 必填 | 说明 |
+| Field | Type | Required | Notes |
 |---|---|---|---|
-| `text` | string | 是 | 按钮展示文字，含 emoji 也可 |
-| `id` | string | 否 | 稳定标识，用于前端埋点/去重；同一会话内不应重复 |
-| `icon` | string | 否 | 图标 key；不传/为 null 时前端用默认图标 |
-| `action` | object | 否 | 缺省时等价于 `{"type": "send_message"}` |
+| `text` | string | Yes | Button label. Emoji is fine |
+| `id` | string | No | Stable id for client analytics and dedup. Must not repeat within the same session |
+| `icon` | string | No | Icon key. When omitted or null, the client uses the default icon |
+| `action` | object | No | When omitted, equivalent to `{"type": "send_message"}` |
 
-`action` 按 `type` 取值展开：
+`action` expands by `type`:
 
-| `action.type` | 行为 | 附加字段 |
+| `action.type` | Behavior | Extra fields |
 |---|---|---|
-| `send_message`（默认） | 在**当前会话**直接发送文本 | `content`（可选，缺省取外层 `text`） |
-| `fill_input` | 填充到**当前会话**输入框，不自动发送 | `content`（必填，放入输入框的文字）；`replace`（可选 boolean，默认 `true`；`true`=覆盖现有内容，`false`=追加到末尾） |
-| `new_conversation` | 打开**新会话**，可携带内容 | `content`（可选，不传则打开空白新会话）；`mode`（可选 `send`\|`prefill`，默认 `prefill`；`send`=进新会话后立即发送，`prefill`=仅放入新会话输入框）；`template_id`（可选，模板/路由标识，前端按此选模板或跳路由） |
+| `send_message` (default) | Send text directly in the **current conversation** | `content` (optional; defaults to the outer `text`) |
+| `fill_input` | Fill the **current conversation** input box without sending | `content` (required, the text placed in the input); `replace` (optional boolean, default `true`; `true` replaces the current contents, `false` appends) |
+| `new_conversation` | Open a **new conversation**, optionally carrying content | `content` (optional; omit it to open a blank new conversation); `mode` (optional `send`\|`prefill`, default `prefill`; `send` sends immediately after entering the new conversation, `prefill` only fills the new conversation's input); `template_id` (optional template or route id; the client picks a template or navigates from it) |
 
-写作要求：
+Writing requirements:
 
-- 推荐操作要与**当前阶段/产出**相关，避免泛泛的「还有什么可以帮你」。
-- 连续推进、未在阶段边界停下时，可不调用。
-- 调用本工具的那一轮不要再调用其他工具。
-- 需要更完整的写作范例（每种 `action.type` 的具体用法）时参考
-  `examples/skill_creator/skills/skill-creator/references/guidance-rules.md`。
+- Recommended actions must relate to the **current stage or output**. Avoid generic "anything else I can help with".
+- You may skip the call when you are advancing continuously and have not stopped at a stage boundary.
+- The turn that calls this tool must not call any other tool.
+- For fuller writing examples (a concrete use of each `action.type`), see `examples/skill_creator/skills/skill-creator/references/guidance-rules.md`.
 
-### 7.4 长期记忆（`memory_*` / `skill_kb_query`，需在 `allowed-tools` 声明）
+### 7.4 Long-term memory (`memory_*` / `skill_kb_query`; must be declared in `allowed-tools`)
 
-**与本节其余小节不同，这 5 个工具不是常驻工具**：只有在 `allowed-tools` 里声明了对应工具名的 Skill 挂载到会话时，模型才能调用它们。官方 Skill 声明不受用户工具天花板限制；用户自建 Skill 需要天花板放行这几个工具名（默认已放行，见第 8 节）。
+**Unlike the rest of this section, these 5 tools are not always available.** The model can call them only when a Skill that declares the corresponding tool name in `allowed-tools` is mounted on the session. Official Skills are not limited by the user tool ceiling. User-authored Skills need the ceiling to allow these tool names (allowed by default; see section 8).
 
-两类数据源，**由两个独立工具分别检索，互不合并**：用户级长期记忆（跨会话保留偏好、事实、项目背景与人物关系）与 skill 级共享知识库（企业/运营方上传的产品文档/FAQ）。故意不做"自动合并成一次调用返回两类数据"的设计——让 LLM 通过**调哪个工具**而不是读结果里的某个 flag 来区分数据来源，避免把知识库内容误当成用户自己说的话（或反过来）。编排器会在系统提示中注入通用约定；需要**领域化读写策略**（如闲聊该记什么、客服该查哪个知识库）时，再写 Skill 正文补充（分别参考 `examples/skill_demo/skills/chat_memory/` 与 `examples/customer_service/skills/customer-service/`）。
+There are two data sources, **searched by two separate tools and never merged**: user-level long-term memory (preferences, facts, project background, and relationships kept across sessions) and a skill-level shared knowledge base (product docs and FAQs uploaded by the business or operator). There is deliberately no design that "merges both into one call". The LLM distinguishes the source by **which tool it calls**, not by reading a flag inside the result. That avoids treating knowledge-base content as something the user said, or the reverse. The orchestrator injects the general convention into the system prompt. When you need a **domain-specific read/write policy** (what small talk should remember, which knowledge base customer support should query), add it in the Skill body. See `examples/skill_demo/skills/chat_memory/` and `examples/customer_service/skills/customer-service/`.
 
-| 工具 | 用途 | 参数 |
+| Tool | Purpose | Parameters |
 |---|---|---|
-| `memory_whoami` | 读取身份摘要（会话开场的便宜 baseline） | 无参数 |
-| `memory_query` | 按语义检索**用户自己的**个人记忆，不含任何 skill 共享知识库内容 | `query`（必填）；可选 `kind`、`limit` |
-| `skill_kb_query` | 按语义检索**当前会话已挂载技能**的共享知识库，不含用户个人记忆；未挂载提供知识库的技能时返回空结果 | `query`（必填）；可选 `kind`、`limit` |
-| `memory_store` | 写入跨会话有价值的事实/偏好（只写用户个人记忆，无法写共享知识库） | `content`（必填）；可选 `kind`、`tags`、`namespace`、`sensitivity` |
-| `memory_forget` | 软删除一条用户个人记忆 | `memory_id`（来自 `memory_query` 返回的 `id`） |
+| `memory_whoami` | Read the identity summary (a cheap baseline at the start of a session) | none |
+| `memory_query` | Semantically search **the user's own** personal memories. Includes no skill shared-knowledge-base content | `query` (required); optional `kind`, `limit` |
+| `skill_kb_query` | Semantically search the shared knowledge base of **skills mounted on the current session**. Includes no personal user memory. Returns an empty result when no mounted skill provides a knowledge base | `query` (required); optional `kind`, `limit` |
+| `memory_store` | Write a fact or preference that is valuable across sessions (writes personal user memory only; cannot write the shared knowledge base) | `content` (required); optional `kind`, `tags`, `namespace`, `sensitivity` |
+| `memory_forget` | Soft-delete one personal user memory | `memory_id` (the `id` returned by `memory_query`) |
 
-**三层数据**：
+**Three layers of data:**
 
-| | 身份摘要（whoami） | 用户个人记忆（query / store / forget） | skill 共享知识库（skill_kb_query） |
+| | Identity summary (whoami) | Personal user memory (query / store / forget) | Skill shared knowledge base (`skill_kb_query`) |
 |---|---|---|---|
-| 存储 | 每用户一行 `summary` | 多条结构化条目 + 可选 embedding | 多条结构化条目（多为文档分片） |
-| Agent | **只读** `memory_whoami` | 读写 `memory_query`/`store`/`forget` | **只读** `skill_kb_query` |
-| 写入 | REST `PUT /memories/identity`；空摘要时用 `memory_store` 记事实即可 | Agent 侧 `memory_store` 或 REST `/api/v1/memories` | 仅 skill owner，通过文档上传或 REST `/api/v1/skills/{skill_id}/kb` |
+| Storage | One `summary` row per user | Many structured entries, plus an optional embedding | Many structured entries (often document chunks) |
+| Agent | **Read-only** via `memory_whoami` | Read/write via `memory_query` / `store` / `forget` | **Read-only** via `skill_kb_query` |
+| Writes | REST `PUT /memories/identity`. When the summary is empty, recording facts with `memory_store` is enough | Agent-side `memory_store`, or REST `/api/v1/memories` | Skill owner only, via document upload or REST `/api/v1/skills/{skill_id}/kb` |
 
-`kind` 取值：`fact` / `preference` / `project` / `person` / `episode`。  
-`sensitivity`：`normal`（默认） / `private`。  
-`namespace`（仅 `memory_store` 可指定）默认 `default`，可按业务隔离；`memory_query` / `skill_kb_query` 均不接受也不需要 `namespace`，各自的检索范围已由工具本身固定。
+`kind` values: `fact` / `preference` / `project` / `person` / `episode`.  
+`sensitivity`: `normal` (default) / `private`.  
+`namespace` (settable only on `memory_store`) defaults to `default` and can isolate data by business. `memory_query` and `skill_kb_query` neither accept nor need `namespace`; each tool's search scope is fixed by the tool itself.
 
-**推荐用法（写进依赖记忆的 Skill 步骤）**：
+**Recommended usage (write this into the steps of a Skill that depends on memory):**
 
-1. **开场**：新对话或不清楚对方背景时先 `memory_whoami`；有摘要则自然融入语气/称呼，不要机械复读。
-2. **答前检索**：涉及用户偏好、项目、人物、历史决策时先 `memory_query`；涉及产品知识库/FAQ/文档内容时改用 `skill_kb_query`；两者按问题类型选其一即可，不要混用或猜测。只依据返回的 `items`，没有命中就坦诚说没有，禁止编造。
-3. **写入**：用户透露或确认了**跨会话仍有价值**的信息时立刻 `memory_store`；一条清晰陈述句即可。高度相似内容可能自动合并（`deduped=true`）。
-4. **忘记/纠正**：「忘掉…」或发现过时 → 先 `memory_query` 取 `id`，再 `memory_forget`；以用户当场说法为准（仅适用于用户个人记忆，共享知识库的增删由 skill owner 通过 REST 管理）。
+1. **Opening:** at the start of a new conversation, or when the other person's background is unclear, call `memory_whoami` first. If a summary exists, fold it naturally into tone and how you address them. Do not recite it mechanically.
+2. **Retrieve before answering:** when the question involves user preferences, projects, people, or past decisions, call `memory_query` first. When it involves a product knowledge base, FAQ, or document content, use `skill_kb_query` instead. Pick one of the two from the question type. Do not mix them or guess. Rely only on the returned `items`. If nothing hits, say so plainly. Do not invent.
+3. **Write:** as soon as the user reveals or confirms information that is **still valuable across sessions**, call `memory_store`. One clear declarative sentence is enough. Highly similar content may be merged automatically (`deduped=true`).
+4. **Forget or correct:** for "forget…" or something you find outdated, call `memory_query` to get the `id`, then `memory_forget`. Treat what the user says in the moment as the source of truth. This applies only to personal user memory. The skill owner adds and removes shared knowledge-base entries through REST.
 
-**该记 / 不该记**（仅 `memory_store`，即用户个人记忆）：
+**What to remember / what not to remember** (`memory_store` only, i.e. personal user memory):
 
-- **该记**：称呼与语气偏好、稳定兴趣/风格、长期项目设定、重要人物关系、用户明确要求记住的决策。
-- **不该记**：一次性任务进度、临时草稿、工具中间结果、密码/密钥/验证码等敏感凭证、未经确认的猜测、与用户无关的百科常识。
+- **Remember:** how they want to be addressed and tone preferences, stable interests or style, long-running project settings, important relationships, and decisions the user explicitly asked you to remember.
+- **Do not remember:** one-off task progress, temporary drafts, intermediate tool results, sensitive credentials such as passwords, keys, and verification codes, unconfirmed guesses, and encyclopedia facts that are not about the user.
 
-**写 Skill 时的注意点**：
+**Notes when writing a Skill:**
 
-- 记忆工具**不是**常驻工具，需要哪个就在 `allowed-tools` 里声明哪个（如只需要个人记忆，不必声明 `skill_kb_query`）。
-- 不要在正文假设「系统会自动记住」——必须通过工具读写。
-- 召回后用自然语言引用（「上次你说更喜欢……」/「根据知识库……」），不要把原始 JSON / memory id 贴给用户。
-- `memory_store` / `memory_query` / `skill_kb_query` 内部会调用 embedding；embedding 失败时会降级关键字检索，Skill 仍应按「无结果不编造」处理。
+- Memory tools are **not** always available. Declare each one you need in `allowed-tools` (if you only need personal memory, you do not need to declare `skill_kb_query`).
+- Do not assume in the body that "the system will remember automatically". Reads and writes must go through the tools.
+- After a recall, refer to it in natural language ("Last time you said you preferred…" / "According to the knowledge base…"). Do not paste raw JSON or a memory id to the user.
+- `memory_store` / `memory_query` / `skill_kb_query` call an embedding model internally. If embedding fails, they fall back to keyword search. The Skill should still treat "no result" as "do not invent".
 
-**REST 管理接口按数据归属严格分组，不共用一组路由**（与上面 Agent 侧两个独立工具的设计一致）：
+**REST admin APIs are grouped strictly by data ownership and do not share one set of routes** (the same split as the two independent agent-side tools above):
 
-| 数据归属 | REST 前缀 | 用途 |
+| Data ownership | REST prefix | Purpose |
 |---|---|---|
-| 用户个人记忆 | `/api/v1/memories`（`GET/POST` 列表创建、`DELETE` 清空全部、`GET/PUT/DELETE /{memory_id}`、`POST /query` 语义检索、`GET/PUT /identity`） | 用户查看/编辑/删除自己的记忆条目 |
-| skill 共享知识库分片 | `/api/v1/skills/{skill_id}/kb`（`GET/POST /entries`、`PUT/DELETE /entries/{memory_id}`、`POST /query`） | skill owner 在文档导入（`kb-documents`）之外手工补充/修订/检索知识库分片 |
+| Personal user memory | `/api/v1/memories` (`GET`/`POST` list and create, `DELETE` clear all, `GET`/`PUT`/`DELETE /{memory_id}`, `POST /query` semantic search, `GET`/`PUT /identity`) | The user views, edits, and deletes their own memory entries |
+| Skill shared-knowledge-base chunks | `/api/v1/skills/{skill_id}/kb` (`GET`/`POST /entries`, `PUT`/`DELETE /entries/{memory_id}`, `POST /query`) | The skill owner manually adds, revises, or searches knowledge-base chunks outside document import (`kb-documents`) |
 
-两组接口都要求 `X-User-Id`；skill KB 组额外校验当前用户是该 skill 的 owner，且更新/删除时会校验目标分片确实属于该 `skill_id` 的命名空间（同一个系统用户持有所有 skill 的共享知识库，仅按 owner 身份过滤不足以防止跨 skill 越权）。
+Both groups require `X-User-Id`. The skill KB group also checks that the current user is that skill's owner, and on update or delete it checks that the target chunk really belongs to that `skill_id`'s namespace. One system user holds the shared knowledge base of every skill, so filtering by owner alone is not enough to prevent cross-skill access.
 
 ---
 
-## 8. 用户 Skill 限制（天花板）
+## 8. User Skill limits (ceiling)
 
-官方 Skill 可声明更广的工具集；**用户自建 Skill** 的 `allowed-tools` 会与服务端天花板求交。默认天花板（`config/config.yaml` → `skills.user_authored.allowed_tools`）：
+Official Skills may declare a wider tool set. The `allowed-tools` of a **user-authored Skill** is intersected with the server ceiling. The default ceiling (`config/config.yaml` → `skills.user_authored.allowed_tools`) is:
 
 - `search_web`
 - `generate_image`
@@ -566,176 +562,176 @@ canvas:
 - `memory_store`
 - `memory_forget`
 
-`list_my_skills` / `read_my_skill` / `read_my_skill_file` / `write_skill_draft` / `write_skill_reference_file` / `publish_skill` / `bind_skill_preset_asset` / `unbind_skill_preset_asset` 这些 Skill 创作工具**不在天花板内、且永远不会被加入**：用户 Skill 无法声明它们，只有官方 Skill（如 `skill-creator`）能用（见第 9 节）。
+The Skill authoring tools `list_my_skills` / `read_my_skill` / `read_my_skill_file` / `write_skill_draft` / `write_skill_reference_file` / `publish_skill` / `bind_skill_preset_asset` / `unbind_skill_preset_asset` are **outside the ceiling and will never be added to it**. A user Skill cannot declare them. Only an official Skill (such as `skill-creator`) can use them (see section 9).
 
-同时还有数量限制（配置可调）：
+There are also count limits (configurable):
 
-- `max_body_chars`（默认 50000）
-- `max_reference_files`（默认 15）
-- `max_per_user`（默认 50）
-- `skills.preset_assets.max_count`（默认 10）
+- `max_body_chars` (default 50000)
+- `max_reference_files` (default 15)
+- `max_per_user` (default 50)
+- `skills.preset_assets.max_count` (default 10)
 
-为用户/市场编写 Skill 时，**不要**声明天花板之外的工具（会被过滤掉，模型侧也不可用）。
+When writing a Skill for users or the marketplace, **do not** declare tools outside the ceiling. They are filtered out and are unavailable to the model.
 
 ---
 
-## 9. Skill 创作工具（skill-creator，仅官方 Skill 可声明）
+## 9. Skill authoring tools (skill-creator, official Skills only)
 
-Skill Agent 具备"在对话中帮用户创建/编辑/发布他自己的 Skill"的能力，由专用创作工具提供。**这些工具不在 `skills.user_authored.allowed_tools` 天花板内，只有官方 Skill 能在 `allowed-tools` 里声明它们**——否则用户 Skill 能再创建 Skill，绕开一切限额/权限控制。完整参考实现见 `examples/skill_creator/`（`skills/skill-creator/SKILL.md` + `references/skill-writing-guide.md` + `references/available-models.md`）。
+The Skill Agent can help a user create, edit, and publish their own Skill inside a conversation, through dedicated authoring tools. **These tools are outside the `skills.user_authored.allowed_tools` ceiling. Only an official Skill can declare them in `allowed-tools`.** Otherwise a user Skill could create further Skills and bypass every quota and permission control. The full reference implementation is `examples/skill_creator/` (`skills/skill-creator/SKILL.md` + `references/skill-writing-guide.md` + `references/available-models.md`).
 
-| 工具 | 作用 |
+| Tool | Role |
 |---|---|
-| `list_my_skills` | 列出当前用户自建的全部 Skill（含未发布草稿），返回 `skill_id`/`name`/`display_name`/`description`/`enabled`/`has_draft`/`allowed_tools` |
-| `read_my_skill` | 按 `skill_id` 读取某个自建 Skill 的完整内容（有草稿时优先返回草稿），还原为完整 SKILL.md 文本（`skill_md`）+ 引用文件**名列表**（不含全文）+ `preset_assets` |
-| `read_my_skill_file` | 按 `skill_id` + `path` 读取草稿（无草稿则线上）中单个引用文件的全文；与 `read_skill_file` 同族但读的是编辑视图 |
-| `write_skill_draft` | 把一份完整 SKILL.md 文本（+ 可选 `reference_files`）保存为草稿；`skill_id` 为空则新建，非空则覆盖既有 Skill 的草稿；**只写草稿，不影响线上版本**；不覆盖既有 `preset_assets`；正文/frontmatter 唯一写入口 |
-| `write_skill_reference_file` | 新增/覆盖或删除草稿中单个引用文件（`content` 省略/`null` 即删除）；不影响正文与其余引用文件，与 `write_skill_draft` 的整表替换互补，适合单文件增删场景 |
-| `publish_skill` | 把草稿发布为线上版本（`enabled=true`），进入用户 Skill 空间（含草稿中的 `preset_assets`） |
-| `bind_skill_preset_asset` | 把本轮用户附件的 `asset_id` 绑到 skill 草稿预设清单（`key`/`label`）；资产会公开引用 |
-| `unbind_skill_preset_asset` | 从草稿预设清单移除一项（不删底层 assets 行） |
+| `list_my_skills` | List every Skill the current user authored (including unpublished drafts). Returns `skill_id` / `name` / `display_name` / `description` / `enabled` / `has_draft` / `allowed_tools` |
+| `read_my_skill` | Read the full content of one user-authored Skill by `skill_id` (the draft is preferred when one exists). Restored as full SKILL.md text (`skill_md`) + a **name list** of reference files (not their full text) + `preset_assets` |
+| `read_my_skill_file` | Read the full text of one reference file in the draft (or the live version if there is no draft) by `skill_id` + `path`. Same family as `read_skill_file`, but it reads the edit view |
+| `write_skill_draft` | Save a complete SKILL.md text (plus optional `reference_files`) as a draft. An empty `skill_id` creates a new Skill; a non-empty one overwrites that Skill's draft. **Writes the draft only and does not affect the live version.** Does not overwrite existing `preset_assets`. This is the only write path for the body and frontmatter |
+| `write_skill_reference_file` | Add, overwrite, or delete a single reference file in the draft (omit `content` or pass `null` to delete). Does not affect the body or the other reference files. Complements the full-table replace of `write_skill_draft`, and fits single-file add/delete |
+| `publish_skill` | Publish the draft as the live version (`enabled=true`) into the user's Skill space (including `preset_assets` from the draft) |
+| `bind_skill_preset_asset` | Bind a `asset_id` from a user attachment in this turn onto the skill draft's preset list (`key` / `label`). The asset is referenced publicly |
+| `unbind_skill_preset_asset` | Remove one item from the draft preset list (does not delete the underlying assets row) |
 
-### 9.1 前置条件
+### 9.1 Prerequisites
 
-- 承载 Skill 的 workflow 必须是 **`skill_agent`**（见第 10 节）。这些创作工具靠 orchestrator 隐藏注入的 `_user_id` 做归属校验（LLM 不可见、不会主动传递，同 `read_skill` 的 `_scope` 注入机制）；`user_id` 缺失时调用会被拒绝并返回结构化错误。
-- 只有官方 Skill（`owner_user_id IS NULL`）能声明这些工具；用户自建 Skill 的 `allowed-tools` 即使写了也会被服务端天花板过滤掉。
+- The workflow that hosts the Skill must be **`skill_agent`** (see section 10). These authoring tools check ownership with `_user_id`, which the orchestrator injects hidden (invisible to the LLM, and the model does not pass it; same injection mechanism as `_scope` on `read_skill`). If `user_id` is missing, the call is rejected with a structured error.
+- Only an official Skill (`owner_user_id IS NULL`) can declare these tools. Even if a user-authored Skill writes them into `allowed-tools`, the server ceiling filters them out.
 
-### 9.2 两段式草稿/发布
+### 9.2 Two-phase draft and publish
 
-与官方 Skill 的 draft/publish 复用同一套 `skills.draft` JSONB 语义：
+This reuses the same `skills.draft` JSONB semantics as official Skill draft/publish:
 
 ```
 write_skill_draft(skill_md, reference_files?, skill_id?)
-        ↓ 只写草稿，不影响线上版本；可反复调用直到用户满意
-用户明确确认（正文必须要求：未经确认不得调用 publish_skill）
+        ↓ writes the draft only; does not affect the live version; may be called repeatedly until the user is satisfied
+The user explicitly confirms (the body must require: do not call publish_skill without confirmation)
         ↓
 publish_skill(skill_id)
-        ↓ 草稿落主列 + enabled=true，进入用户空间（下一轮对话起可用）
+        ↓ the draft is written to the main columns + enabled=true, and enters the user space (available starting with the next conversation turn)
 ```
 
-`write_skill_draft` 返回 `{skill_id, name, warnings[], preview}`：`preview` 里的名称/描述/工具白名单要念给用户确认；`warnings` 列出因超出用户天花板（第 8 节）被裁掉的工具，正文必须要求如实告知，不能吞掉不提。限额校验（正文超长/引用文件过多/超过每用户 Skill 数上限）失败时返回结构化 `error`，按提示修正后重试。
+`write_skill_draft` returns `{skill_id, name, warnings[], preview}`. Read the name, description, and tool allowlist in `preview` back to the user for confirmation. `warnings` lists tools that were stripped because they exceeded the user ceiling (section 8). The body must require those warnings to be reported honestly; do not swallow them. Quota checks (body too long, too many reference files, or over the per-user Skill count) return a structured `error` on failure. Fix according to the message and retry.
 
-只想增/改/删单个引用文件时不必走整份 `write_skill_draft`，用 `write_skill_reference_file(skill_id, path, content?)` 即可（同样只写草稿）：`content` 省略或为 `null` 表示删除该文件；`path` 不能是 `SKILL.md`（正文/frontmatter 只能经 `write_skill_draft`）。返回 `{skill_id, path, deleted, existed, reference_files}`；删除不存在的路径返回 `existed=false` 且不算错误，但也未做任何修改。
+To add, change, or delete a single reference file, you do not need a full `write_skill_draft`. Use `write_skill_reference_file(skill_id, path, content?)` (this also writes the draft only). Omitting `content` or passing `null` deletes that file. `path` cannot be `SKILL.md` (the body and frontmatter can go through `write_skill_draft` only). It returns `{skill_id, path, deleted, existed, reference_files}`. Deleting a path that does not exist returns `existed=false` and is not an error, but it also changes nothing.
 
-### 9.3 name 的 kebab-case 约束
+### 9.3 kebab-case constraint on `name`
 
-模型生成的 SKILL.md frontmatter `name` 必须是 kebab-case（`xx-xx`，见第 3 节）。服务端会把它规范化：非 ASCII 字母数字字符（含中文、下划线、空格）一律折叠为连字符——若模型偷懒写中文或拼音，规范化后可能坍缩成一串没有语义的连字符甚至回退为 `skill`。因此 skill-creator 类 Skill 的正文/引用文件里必须明确要求：**`name` 用英文单词 + 连字符拟定**，中文可读名放 `display_name`；新建前建议先 `list_my_skills()` 检查是否与已有 Skill 撞名。
+The `name` in SKILL.md frontmatter generated by the model must be kebab-case (`xx-xx`; see section 3). The server normalizes it: any non-ASCII letter or digit (including Chinese, underscores, and spaces) is collapsed into a hyphen. If the model lazily writes Chinese or a romanization, normalization can collapse it into a string of meaningless hyphens, or even fall back to `skill`. A skill-creator-style Skill's body and reference files must therefore require explicitly: **compose `name` from English words joined by hyphens**, and put the human-readable name (including non-English text) in `display_name`. Before creating one, call `list_my_skills()` and check that it does not collide with an existing Skill.
 
-### 9.4 已知限制
+### 9.4 Known limits
 
-- Skill 挂载集在每轮对话开始时解析一次；`publish_skill` 成功后**本轮不会立刻生效**，正文需告知用户"新 Skill 从下一轮对话起可用"。
-- 用户 Skill 不写 `skill_revisions`（修订历史仅官方 Skill 归档），发布后没有历史版本可回滚，只能再次编辑草稿覆盖。
-- `read_my_skill` / `read_my_skill_file` / `write_skill_draft` / `write_skill_reference_file` / `publish_skill` 均按 `(skill_id, owner_user_id)` 做归属校验，模型不能读取/修改/发布不属于当前用户的 Skill；越权调用返回结构化 `{"success": false, "error": ...}`，不是异常。
-- `write_skill_reference_file` 与 `write_skill_draft` 都是"读草稿 → 内存合并 → 整体覆盖 `draft` JSONB"，两次并发调用会互相覆盖（后写者基于旧快照），无乐观锁；当前单会话交互场景下概率低，可接受。
+- The mounted Skill set is resolved once at the start of each conversation turn. After `publish_skill` succeeds, it **does not take effect in the current turn**. The body must tell the user that the new Skill is available starting with the next conversation turn.
+- User Skills do not write `skill_revisions` (revision history is archived for official Skills only). After publish there is no historical version to roll back to. The only path is to edit the draft again and overwrite.
+- `read_my_skill` / `read_my_skill_file` / `write_skill_draft` / `write_skill_reference_file` / `publish_skill` all check ownership by `(skill_id, owner_user_id)`. The model cannot read, modify, or publish a Skill that does not belong to the current user. An unauthorized call returns a structured `{"success": false, "error": ...}`, not an exception.
+- Both `write_skill_reference_file` and `write_skill_draft` do "read draft → merge in memory → overwrite the whole `draft` JSONB". Two concurrent calls overwrite each other (the later writer is based on a stale snapshot). There is no optimistic lock. The chance is low in the current single-session interaction, and that is acceptable.
 
 ---
 
-## 10. orchestrator_config（可选）
+## 10. orchestrator_config (optional)
 
-`skill_agent` 类型 workflow 的编排配置很轻，**不是** Skill 正文的一部分。Skill 挂载一律按 `user_id` 动态解析（内置 + 我的 + 已安装 + `/` 强制挂载）；`skills` / `skill_scope` 若出现则忽略。示例见 `examples/assistant/orchestrator_config.yaml` / `examples/skill_demo/orchestrator_config.yaml`：
+The orchestrator config for a `skill_agent` workflow is light, and it is **not** part of the Skill body. Skills are always resolved dynamically by `user_id` (built-in + mine + installed + `/` forced mounts). `skills` and `skill_scope`, if present, are ignored. See `examples/assistant/orchestrator_config.yaml` and `examples/skill_demo/orchestrator_config.yaml`:
 
 ```yaml
 orchestrator_name: skill_demo
-role_description: "你是一个可以调用平台工具完成用户任务的智能助手。"
+role_description: "You are an assistant that can call platform tools to complete the user's task."
 
-tools:                    # 不依赖任何 skill 也可直接调用的核心工具
+tools:                    # core tools that can be called directly, without depending on any skill
   - list_models
   - search_library
   - get_library_item
 
 max_iterations: 20
 add_to_canvas: true
-suggested_questions: true # 默认 true；关闭则模型不能用 set_guidance
-timezone: UTC             # 可选，IANA 时区名；默认 UTC+0（全球用户），决定注入给模型的当前时间时区
+suggested_questions: true # default true; if off, the model cannot use set_guidance
+timezone: UTC             # optional IANA timezone name; default UTC+0 (global users); sets the timezone of the current time injected to the model
 ```
 
-> **当前时间**：每轮用户消息（HumanMessage 尾部）会自动附带一行当前时间（含时区与 UTC offset），模型可直接感知"现在几点"，无需调用工具。时间属于每轮易变信息，按 prefix-cache 约束**不会**出现在 system prompt 中；Skill 正文里需要按时间做判断时（如"今天/本周"），直接引用该行即可。
+> **Current time:** each user message (the tail of the HumanMessage) automatically gets one line with the current time (timezone and UTC offset). The model can tell what time it is without calling a tool. Time is per-turn volatile data, so under the prefix-cache constraint it does **not** appear in the system prompt. When the Skill body needs to judge by time (such as "today" or "this week"), refer to that line directly.
 
-编写 **单个 Skill 包** 时通常只需关心 `SKILL.md` + `references/`；只有在创建/调整整个 `skill_agent` workflow 时才改上述 YAML。
-
----
-
-## 11. 完整示例
-
-### 11.1 单能力 Skill（简单）
-
-见 `examples/skill_demo/skills/image_generation/SKILL.md`：
-
-- `description` 描述用户意图（画图/海报/头像）
-- `allowed-tools`: `list_models`、`generate_image`
-- 正文：改写 prompt → 按模态写死 `model=<channel>`（如 `t2i` / `i2i`）→ 调用工具 → 简短回复
-- 无 `references/`
-
-同类：`examples/skill_demo/skills/web_research/SKILL.md`。
-
-闲聊 / 跨会话记忆：`examples/skill_demo/skills/chat_memory/SKILL.md`（第 7.4 节）：
-
-- `description` 覆盖「记住 / 回忆 / 忘记」与持续对话中的偏好/身份
-- `allowed-tools` 必须声明用到的 `memory_*` 工具名（不再是常驻工具，不声明就调不到）
-- 正文：whoami → query → store → forget，以及该记/不该记
-
-### 11.2 多阶段 Skill（复杂）
-
-见 `examples/drama_skills/`：
-
-- 根 `SKILL.md`：触发描述、工具白名单、阶段表、协作原则（连续推进 / 局部修改 / todos / guidance）
-- `references/*.md`：编剧、视觉、分镜图、分镜视频、配音、合成各阶段细节与 `entity_type` 约定
-
-新增长流程 Skill 时，优先复制该目录的**信息架构**，再替换领域内容。
-
-### 11.3 Skill 创作工具（skill-creator）
-
-见 `examples/skill_creator/`（第 9 节）：
-
-- `skills/skill-creator/SKILL.md`：`allowed-tools` 只声明 `list_my_skills` / `read_my_skill` / `write_skill_draft` / `publish_skill`；正文区分「新建」「修改既有」「查看」三条流程，强调发布前必须用户确认；涉及媒体生成时要求先读 `available-models.md` 并写死 **channel**
-- `references/skill-writing-guide.md`：面向"帮用户写 Skill 的 Skill"的编写规范，含 kebab-case 命名约束、天花板内工具清单、**channel 选型**、产出前检查清单
-- `references/available-models.md`：平台 channel 目录（权威）；起草时硬编码 channel，禁止物理模型名
-- `orchestrator_config.yaml`：说明性配置，示范挂在 `skill_agent` 动态挂载 workflow 下
-
-写"能创建 Skill 的 Skill"（元 Skill）时，优先复制该目录结构，替换成自己的业务规范文档。
+When writing a **single Skill package**, you usually only care about `SKILL.md` + `references/`. Change the YAML above only when creating or adjusting a whole `skill_agent` workflow.
 
 ---
 
-## 12. AI 编写检查清单
+## 11. Complete examples
 
-写完或改完一个 Skill 后，逐项确认：
+### 11.1 Single-capability Skill (simple)
 
-- [ ] 有合法 YAML frontmatter；`name`、`description` 非空
-- [ ] `description` 是「用户意图触发条件」，不是功能广告或实现细节
-- [ ] `allowed-tools` 只包含本 Skill 真正需要的工具，且在用户天花板内（若面向用户）
-- [ ] 正文含「何时使用 / 步骤 / 注意事项」（或多阶段索引 + 协作原则）
-- [ ] 步骤中的工具名与 `allowed-tools` 一致；关键参数（`name`、`entity_type`、`orientation`、生成步骤的 **`model=<channel>`** 等）有约定
-- [ ] 涉及媒体生成时：已按第 6.3 节绑定正确 **channel**（对照 `available-models.md`；无物理模型名；视频生成不支持 NSFW/成人内容）
-- [ ] 逐词高亮字幕用 `caption_video`（不传 `model`、不传 `words`、`template` 用已知 ID），并写进 `allowed-tools`；不要用 `mix_clips` 字幕或 `transcribe_audio` 的 SRT 代替
-- [ ] 未引入 `data_schemas` / `operations` / 伪 JSON 状态协议
-- [ ] 未依赖 Skill 包内 `scripts/`（不会被解析或执行）
-- [ ] 长内容已拆到 `references/`，正文明确「按需 `read_skill_file`、不要一次全读」
-- [ ] 多步流程要求使用 `write_todos`；阶段边界/完成时要求 `set_guidance`（若适用）
-- [ ] 依赖跨会话记忆时：`allowed-tools` 已声明用到的 `memory_whoami` / `memory_query` / `memory_store` / `memory_forget`（不再常驻），并在步骤里写清调用时机与该记/不该记；依赖 skill 共享知识库时声明并使用 `skill_kb_query`，不要与 `memory_query` 混用（见 7.4）
-- [ ] 要求失败如实反馈、禁止编造 URL、违规内容拒绝生成
-- [ ] 有中间产物时已在 frontmatter `canvas:` 声明隐藏规则（`hidden_entity_types` / `hidden_tools`），或开启 `model_control` 并在正文写死哪些步骤传 `add_to_canvas=false`
-- [ ] 涉及成人/敏感内容时：图片按需绑定生成 channel（裸 `t2i`/`i2i`，非 `.hd*` 变体，见 6.3）；视频生成不支持 NSFW/成人内容；Skill 已不支持声明对话 LLM 档位
-- [ ] 最终回复要求自然语言概括，不粘贴长 URL
-- [ ] 目录可被 `load_skill_from_directory` / zip 上传解析（`SKILL.md` 存在，引用路径正确）
+See `examples/skill_demo/skills/image_generation/SKILL.md`:
+
+- `description` states the user intent (drawing, poster, avatar)
+- `allowed-tools`: `list_models`, `generate_image`
+- Body: rewrite the prompt → hardcode `model=<channel>` for the modality (e.g. `t2i` / `i2i`) → call the tool → short reply
+- No `references/`
+
+Similar: `examples/skill_demo/skills/web_research/SKILL.md`.
+
+Chat / cross-session memory: `examples/skill_demo/skills/chat_memory/SKILL.md` (section 7.4):
+
+- `description` covers "remember / recall / forget" and preferences or identity across an ongoing conversation
+- `allowed-tools` must declare the `memory_*` tool names that are used (they are no longer always available; undeclared tools cannot be called)
+- Body: whoami → query → store → forget, plus what to remember and what not to remember
+
+### 11.2 Multi-stage Skill (complex)
+
+See `examples/drama_skills/`:
+
+- Root `SKILL.md`: trigger description, tool allowlist, stage table, collaboration principles (continuous advance / partial edit / todos / guidance)
+- `references/*.md`: writing, visuals, storyboard images, storyboard video, voiceover, and compositing, with `entity_type` conventions for each stage
+
+When adding a new long-workflow Skill, copy that directory's **information architecture** first, then replace the domain content.
+
+### 11.3 Skill authoring tools (skill-creator)
+
+See `examples/skill_creator/` (section 9):
+
+- `skills/skill-creator/SKILL.md`: `allowed-tools` declares only `list_my_skills` / `read_my_skill` / `write_skill_draft` / `publish_skill`. The body separates the three flows "create", "edit an existing one", and "view", and stresses that the user must confirm before publish. When media generation is involved, it requires reading `available-models.md` first and hardcoding a **channel**
+- `references/skill-writing-guide.md`: authoring rules for "a Skill that helps the user write Skills", including the kebab-case naming constraint, the in-ceiling tool list, **channel selection**, and a pre-output checklist
+- `references/available-models.md`: the platform channel catalog (authoritative). Hardcode channels while drafting. Physical model names are forbidden
+- `orchestrator_config.yaml`: illustrative config, showing how it hangs off a `skill_agent` workflow with dynamic mounting
+
+When writing "a Skill that can create Skills" (a meta Skill), copy that directory structure first and replace it with your own business spec.
 
 ---
 
-## 附：常见误区
+## 12. AI authoring checklist
 
-| 误区 | 正确做法 |
+After writing or editing a Skill, confirm each item:
+
+- [ ] Valid YAML frontmatter; `name` and `description` are non-empty
+- [ ] `description` is a "user-intent trigger condition", not a feature ad or an implementation detail
+- [ ] `allowed-tools` contains only tools this Skill actually needs, and they are inside the user ceiling (if the Skill is for users)
+- [ ] The body has "When to use / Steps / Notes" (or a multi-stage index plus collaboration principles)
+- [ ] Tool names in the steps match `allowed-tools`. Key parameters (`name`, `entity_type`, `orientation`, **`model=<channel>`** on generation steps, and so on) have conventions
+- [ ] When media generation is involved: the correct **channel** is bound per section 6.3 (checked against `available-models.md`; no physical model name; video generation does not support NSFW/adult content)
+- [ ] Word-by-word highlight captions use `caption_video` (do not pass `model`, do not pass `words`, `template` is a known id) and are listed in `allowed-tools`. Do not substitute `mix_clips` subtitles or an SRT from `transcribe_audio`
+- [ ] No `data_schemas` / `operations` / fake JSON state protocol
+- [ ] Does not depend on `scripts/` inside the Skill package (it is not parsed or executed)
+- [ ] Long content is split into `references/`, and the body says "call `read_skill_file` as needed; do not read everything at once"
+- [ ] Multi-step flows require `write_todos`. Stage boundaries and completion require `set_guidance` (when applicable)
+- [ ] When the Skill depends on cross-session memory: `allowed-tools` declares the `memory_whoami` / `memory_query` / `memory_store` / `memory_forget` tools that are used (no longer always available), and the steps spell out when to call them and what to remember or not remember. When it depends on a skill shared knowledge base, declare and use `skill_kb_query`, and do not mix it with `memory_query` (see 7.4)
+- [ ] Failures must be reported honestly, inventing URLs is forbidden, and prohibited content is refused
+- [ ] When there are intermediate outputs, the frontmatter `canvas:` declares hide rules (`hidden_entity_types` / `hidden_tools`), or `model_control` is on and the body hardcodes which steps pass `add_to_canvas=false`
+- [ ] For adult or sensitive content: bind an image generation channel as needed (bare `t2i` / `i2i`, not a `.hd*` variant; see 6.3). Video generation does not support NSFW/adult content. Skills can no longer declare a conversation LLM tier
+- [ ] The final reply is required to be a natural-language summary, without pasting long URLs
+- [ ] The directory can be parsed by `load_skill_from_directory` or a zip upload (`SKILL.md` exists, reference paths are correct)
+
+---
+
+## Appendix: Common mistakes
+
+| Mistake | Correct approach |
 |---|---|
-| 按旧 drama 配置写 `agents_config.yaml` | Skill Agent 只用 `SKILL.md` 包 |
-| 把完整流程全塞进 body | 阶段细节放 `references/`，正文只留索引 |
-| `description` 写「帮助用户创作」 | 写清具体意图与边界场景 |
-| 在 Skill 里规定「输出必须是 JSON」 | 工具走原生 function calling；对用户用自然语言 |
-| 假设有 `characters` 集合可 update | 用 Markdown 写设定，用画布 URL 引用已生成资产 |
-| 忘记声明 `generate_image` 却在步骤里调用 | `allowed-tools` 与正文步骤保持一致 |
-| 生成步骤硬编码物理模型名（`rm3.1-G`、`qwen-image`…） | 写稳定 **channel**（`i2v`、`t2i`…）；对照 `available-models.md`（见 6.3） |
-| 用 `mix_clips` 字幕或 `transcribe_audio` 的 SRT 做逐词高亮 | 用 `caption_video`：不传 `model`、不传 `words`，写死已知 `template`。文稿仍走 `transcribe_audio`；要拼接或整句硬字幕才用 `mix_clips` |
-| 用 `list_models` 现场猜模型代替 channel 目录 | 起草时以 `available-models.md` 为准；`list_models` 仅兜底 |
-| 阶段之间每次都问「是否继续」 | 默认连续推进；仅用户要求确认时停下 |
-| 用户 Skill 里声明 `write_skill_draft` / `publish_skill` 等创作工具 | 仅官方 Skill 可声明，不在用户天花板内（见第 9 节），否则用户 Skill 可自我繁殖 |
-| 假设系统会自动记住用户偏好 | 必须用 `memory_store` / `memory_query`；身份摘要靠 whoami（见 7.4） |
-| 期望 `memory_query` 能查到 skill 知识库内容 | 用户记忆与共享知识库是两个独立工具，`memory_query` 只查个人记忆，知识库内容要用 `skill_kb_query`（见 7.4） |
-| 用了 `memory_*` / `skill_kb_query` 却没写进 `allowed-tools` | 这 5 个工具不再常驻，必须显式声明才能被挂载调用（见 7.4） |
-| `publish_skill` 成功后指望本轮就能用新 Skill | Skill 挂载集每轮开始时解析一次，新 Skill 下一轮对话起才生效（见 9.4） |
-| skill-creator 类 Skill 里 `name` 允许用中文/下划线 | `name` 必须 kebab-case，非 ASCII 字符会被规范化坍缩，正文需强制要求英文+连字符（见 9.3） |
+| Writing `agents_config.yaml` in the old drama-config style | The Skill Agent uses only a `SKILL.md` package |
+| Stuffing the whole workflow into the body | Put stage details in `references/`. Leave only an index in the body |
+| Writing `description` as "helps the user create" | State the concrete intent and the boundary cases |
+| Requiring in the Skill that "output must be JSON" | Tools use native function calling. Talk to the user in natural language |
+| Assuming there is a `characters` collection to update | Write the setting in Markdown, and reference already-generated assets by canvas URL |
+| Forgetting to declare `generate_image` while calling it in a step | Keep `allowed-tools` consistent with the steps in the body |
+| Hardcoding a physical model name in a generation step (`rm3.1-G`, `qwen-image`, …) | Write a stable **channel** (`i2v`, `t2i`, …). Check `available-models.md` (see 6.3) |
+| Using `mix_clips` subtitles or an SRT from `transcribe_audio` for word-by-word highlight | Use `caption_video`: do not pass `model`, do not pass `words`, and hardcode a known `template`. Transcripts still go through `transcribe_audio`. Use `mix_clips` only to concatenate or to burn whole-sentence hard subtitles |
+| Using `list_models` on the spot to guess a model instead of the channel catalog | While drafting, `available-models.md` is the source of truth. `list_models` is only a fallback |
+| Asking "continue?" between every stage | Advance continuously by default. Stop only when the user asks for confirmation |
+| Declaring authoring tools such as `write_skill_draft` / `publish_skill` in a user Skill | Only official Skills may declare them. They are outside the user ceiling (see section 9). Otherwise a user Skill could reproduce itself |
+| Assuming the system automatically remembers user preferences | You must use `memory_store` / `memory_query`. The identity summary comes from whoami (see 7.4) |
+| Expecting `memory_query` to find skill knowledge-base content | Personal memory and the shared knowledge base are two separate tools. `memory_query` searches personal memory only. Knowledge-base content uses `skill_kb_query` (see 7.4) |
+| Using `memory_*` / `skill_kb_query` without listing them in `allowed-tools` | These 5 tools are no longer always available. They must be declared explicitly before they can be mounted and called (see 7.4) |
+| Expecting a new Skill to be usable in the current turn after `publish_skill` succeeds | The mounted Skill set is resolved once at the start of each turn. The new Skill takes effect starting with the next conversation turn (see 9.4) |
+| Allowing Chinese or underscores in `name` inside a skill-creator-style Skill | `name` must be kebab-case. Non-ASCII characters are normalized and collapsed. The body must require English words plus hyphens (see 9.3) |
