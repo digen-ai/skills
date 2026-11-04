@@ -280,13 +280,11 @@ A Skill can declare and use only tools the platform has registered. User-authore
 | `recognize_video` | Understand / describe a video | `video_url`; optional `prompt`, `model` |
 | `transcribe_audio` | Transcribe audio (including SRT) | `audio_url`; optional `cache`, **`model='asr'`** |
 | `search_web` | Web search | `query`; optional `search_depth`, `max_results` |
-| `fetch_video_info` | Social-video metadata | `url` (YouTube/TikTok/IG/FB/X/LinkedIn) |
-| `download_video` | Temporary download link for a social video | `url`; optional `quality`, `format` (YouTube/TikTok/IG only) |
 | `create_document` | Create a new document asset (same level as image/video/audio, added to the canvas; always creates a new document and never overwrites an existing one) | `content`; optional `name`, `filename`, `content_type` (default `text/markdown`), `entity_type` |
 | `update_document` | Update an existing document asset in place (same asset_id; the canvas card refreshes in place and no new asset is created) | `asset_id`, `content` (full replacement); optional `name`, `content_type`, `entity_type` (if omitted, the original document's values are kept) |
 | `get_document` | Read a document asset's body by asset_id | `asset_id` (from `create_document` or a document the user uploaded) |
 
-Asset-producing and processing tools (`generate_*`, `split_image`, `mix_clips`, `caption_video`, `extract_clip`, `extract_frame`, `extract_audio`, `create_document`, `update_document`) add the asset to the canvas on success (when the workflow has `add_to_canvas: true`). `recognize_image` / `recognize_video` / `transcribe_audio` / `fetch_video_info` / `download_video` / `get_document` / `search_web` / `search_library` / `get_library_item` return interactive results and are not added to the canvas.
+Asset-producing and processing tools (`generate_*`, `split_image`, `mix_clips`, `caption_video`, `extract_clip`, `extract_frame`, `extract_audio`, `create_document`, `update_document`) add the asset to the canvas on success (when the workflow has `add_to_canvas: true`). `recognize_image` / `recognize_video` / `transcribe_audio` / `get_document` / `search_web` / `search_library` / `get_library_item` return interactive results and are not added to the canvas.
 
 **Asset-library usage (`search_library` → `get_library_item` → a generation tool):** search the public or personal library with `search_library` by keyword, category, and scope (the result is a compact `uri`+`providers`, with no presigned URL). Then call `get_library_item(item_id=...)` to get `media[].uri` / `providers`, write them into project assets, or pass them as input to `generate_image(input_urls=[uri])`, `generate_video`, or `recognize_image` (pass `s3://`; the system presigns before execution).
 
@@ -301,7 +299,6 @@ When calling asset-producing tools such as `generate_image` / `generate_video` /
   - Audio: defined by the business (e.g. `voiceovers` / `music`)
   - Documents: defined by the business (e.g. `scripts` / `reports`)
 - **Do not** have the model pass `group_id` / `index` (if the system auto-assigns them, the platform handles it).
-- The `downloadUrl` returned by `download_video` **expires**. Use it within `expiresIn`.
 - Document assets from `create_document` / `update_document` use the same storage model as user-uploaded documents: the original file is stored in S3, and `document_contents` stores plain text for `get_document` and context injection (S3 is not read back). Every `create_document` call creates a new asset_id and a new canvas card. `update_document` is PUT semantics: it refreshes the same card in place for the given existing `asset_id` and does not create a new card. Use `update_document` to edit an existing document and `create_document` to create one. Both `content` fields have a length cap (default `200000` characters; see `create_document.max_content_chars` / `update_document.max_content_chars` in `plugins/documents/config.yaml`). Over the cap, the tool returns `success: false`. Split larger content into multiple documents.
 
 #### Hiding intermediate outputs (frontmatter `canvas:`)
@@ -549,8 +546,6 @@ Official Skills may declare a wider tool set. The `allowed-tools` of a **user-au
 - `recognize_image`
 - `recognize_video`
 - `transcribe_audio`
-- `fetch_video_info`
-- `download_video`
 - `create_document`
 - `update_document`
 - `get_document`
